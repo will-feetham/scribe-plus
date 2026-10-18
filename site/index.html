@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scribe Plus</title>
+<meta name="description" content="Free, open-source AI dictation for Mac and Windows. Hold a key, talk, and clean text lands wherever your cursor is. Built on Scribe by Avi Ibrahms.">
+<meta property="og:title" content="Scribe Plus">
+<meta property="og:description" content="Hold a key, talk, and clean text lands wherever your cursor is. Free for Mac and Windows.">
+<meta property="og:image" content="https://scribeplus.feetham.us/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=Schibsted+Grotesk:wght@400;500;600;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --paper: #EEF0F4;
+  --surface: #FFFFFF;
+  --ink: #1B1D24;
+  --muted: #5B6070;
+  --faint: #8A90A0;
+  --line: #D5D9E2;
+  --pill: #18181B;
+  --pill-line: #3F3F46;
+  --pill-ink: #F4F4F5;
+  --violet: #5B4BC4;
+  --violet-ink: #FFFFFF;
+  --violet-soft: #E4E0F7;
+  --ok: #4ADE80;
+  --rose: #E11D48;
+  --key: #FFFFFF;
+  --key-edge: #C3C8D3;
+  --code: #1B1D24;
+  --code-ink: #E9EAF0;
+  --sans: "Schibsted Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --serif: "Newsreader", Georgia, serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #15161B;
+    --surface: #1E2027;
+    --ink: #ECEDF2;
+    --muted: #A3A8B6;
+    --faint: #737a8a;
+    --line: #2E313A;
+    --violet: #9C8FF0;
+    --violet-ink: #15161B;
+    --violet-soft: #2A2547;
+    --key: #2A2D36;
+    --key-edge: #3B3F4B;
+    --code: #0E0F13;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #15161B; --surface: #1E2027; --ink: #ECEDF2; --muted: #A3A8B6; --faint: #737a8a;
+  --line: #2E313A; --violet: #9C8FF0; --violet-ink: #15161B; --violet-soft: #2A2547;
+  --key: #2A2D36; --key-edge: #3B3F4B; --code: #0E0F13;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 17px/1.55 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--violet); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+a:hover { text-decoration-thickness: 2px; }
+:focus-visible { outline: 3px solid var(--violet); outline-offset: 3px; border-radius: 6px; }
+
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 28px; }
+
+/* Header ----------------------------------------------------------------- */
+.top { display: flex; align-items: center; justify-content: space-between; padding: 26px 0 0; }
+.brand { display: flex; align-items: center; gap: 12px; color: var(--ink); text-decoration: none; font-weight: 800; font-size: 19px; letter-spacing: -0.01em; }
+.brand img { width: 34px; height: 34px; border-radius: 9px; box-shadow: 0 0 0 1px var(--line); }
+.top nav a { color: var(--muted); text-decoration: none; font-weight: 500; font-size: 15px; }
+.top nav a:hover { color: var(--ink); }
+
+/* Hero -------------------------------------------------------------------- */
+.hero { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); gap: 48px; align-items: start; padding: 72px 0 40px; }
+h1 {
+  font-weight: 800;
+  font-size: clamp(40px, 5.6vw, 66px);
+  line-height: 1.02;
+  letter-spacing: -0.035em;
+  margin: 0 0 22px;
+  max-width: 11ch;
+}
+.lede { font-size: 19px; color: var(--muted); max-width: 33em; margin: 0 0 34px; }
+.lede strong { color: var(--ink); font-weight: 600; }
+
+/* Install ---------------------------------------------------------------- */
+.install { max-width: 600px; }
+.tabs { display: inline-flex; gap: 4px; padding: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; margin-bottom: 18px; }
+.tabs button {
+  font: 600 15px var(--sans); color: var(--muted); background: none; border: 0; cursor: pointer;
+  padding: 8px 18px; border-radius: 999px;
+}
+.tabs button[aria-selected="true"] { background: var(--ink); color: var(--paper); }
+.panel[hidden] { display: none; }
+.panel p { margin: 0 0 12px; }
+.step { color: var(--muted); font-size: 15.5px; }
+.cmd {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--code); color: var(--code-ink);
+  border-radius: 12px; padding: 6px 6px 6px 18px; margin: 0 0 12px;
+}
+.cmd code { font: 13px/1.5 var(--mono); white-space: nowrap; overflow-x: auto; flex: 1; padding: 10px 0; scrollbar-width: none; }
+.copy {
+  flex: none; font: 600 14px var(--sans); color: var(--code); background: var(--code-ink);
+  border: 0; border-radius: 8px; padding: 9px 14px; cursor: pointer; min-width: 74px;
+}
+.copy:hover { background: #fff; }
+.btn {
+  display: inline-flex; align-items: center; gap: 10px;
+  background: var(--violet); color: var(--violet-ink); text-decoration: none;
+  font-weight: 600; font-size: 16px; padding: 13px 22px; border-radius: 12px; margin: 0 0 14px;
+}
+.btn:hover { filter: brightness(1.06); }
+.or { color: var(--faint); font-size: 14.5px; margin: 4px 0 8px; }
+.release { font-size: 14.5px; color: var(--faint); margin-top: 18px; }
+.release a { color: var(--muted); }
+
+/* Demo -------------------------------------------------------------------- */
+.demo { position: relative; padding-bottom: 86px; }
+.stage {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 18px;
+  padding: 22px 24px 24px; box-shadow: 0 30px 60px -36px rgba(27, 29, 36, 0.35);
+}
+.said { min-height: 84px; margin: 0 0 18px; color: var(--faint); font-size: 15.5px; line-height: 1.6; }
+.said .who { display: block; color: var(--muted); font-weight: 600; font-size: 13.5px; margin-bottom: 2px; }
+.said .w { transition: opacity .5s, color .5s; }
+.said .w.filler.struck { text-decoration: line-through; text-decoration-color: var(--rose); color: var(--faint); opacity: .55; }
+.field {
+  border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; min-height: 92px;
+  font: 400 21px/1.45 var(--serif); color: var(--ink); background: var(--paper);
+}
+.field .to { display: block; font: 600 13.5px var(--sans); color: var(--muted); margin-bottom: 6px; }
+.caret { display: inline-block; width: 2px; height: 1.1em; vertical-align: -0.2em; background: var(--violet); animation: blink 1.05s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
+.keys { display: flex; align-items: center; gap: 10px; margin-top: 18px; color: var(--muted); font-size: 14.5px; }
+kbd {
+  display: inline-block; font: 600 13.5px var(--sans); color: var(--ink);
+  background: var(--key); border: 1px solid var(--key-edge); border-bottom-width: 3px;
+  border-radius: 7px; padding: 4px 9px 2px; transition: transform .12s, border-bottom-width .12s, background .12s;
+}
+kbd.down { transform: translateY(2px); border-bottom-width: 1px; background: var(--violet-soft); }
+
+.pill {
+  position: absolute; left: 50%; bottom: 22px; height: 34px; width: 34px;
+  transform: translateX(-50%); background: var(--pill); border: 1px solid var(--pill-line);
+  border-radius: 999px; display: flex; align-items: center; justify-content: center;
+  opacity: 0; box-shadow: 0 10px 24px -10px rgba(0,0,0,.5);
+}
+.pill canvas { display: block; }
+
+/* What it does -------------------------------------------------------------- */
+.what { padding: 40px 0 24px; border-top: 1px solid var(--line); margin-top: 24px; }
+.what h2, .credit h2 { font-size: 26px; letter-spacing: -0.02em; margin: 0 0 22px; font-weight: 800; }
+.features { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 56px; margin: 0; }
+.features div { padding: 16px 0 18px; border-bottom: 1px solid var(--line); }
+.features dt { font-weight: 600; font-size: 17.5px; margin-bottom: 4px; }
+.features dd { margin: 0; color: var(--muted); font-size: 16px; max-width: 34em; }
+.features kbd { font-size: 12.5px; padding: 2px 7px 1px; }
+
+.credit { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 56px; padding: 48px 0 24px; }
+.credit p { color: var(--muted); margin: 0 0 12px; max-width: 34em; }
+.credit p strong { color: var(--ink); font-weight: 600; }
+footer { padding: 30px 0 48px; color: var(--faint); font-size: 14.5px; }
+footer a { color: var(--muted); }
+
+@media (max-width: 900px) {
+  .hero { grid-template-columns: minmax(0, 1fr); gap: 44px; padding-top: 48px; }
+  .features, .credit { grid-template-columns: minmax(0, 1fr); }
+  .cmd code { white-space: normal; overflow-wrap: anywhere; }
+  .credit { gap: 12px; }
+}
+@media (max-width: 520px) {
+  .wrap { padding: 0 16px; }
+  .lede { font-size: 17.5px; }
+  .stage { padding: 18px 16px 20px; }
+  .field { font-size: 19px; }
+  .cmd code { font-size: 13px; }
+  .top nav a.hide-sm { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .caret { animation: none; }
+  .said .w, kbd { transition: none; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="./"><img src="icon.png" alt="">Scribe Plus</a>
+    <nav><a href="https://github.com/will-feetham/scribe-plus">Source on GitHub</a></nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <h1>Talk, and clean text lands where your cursor is.</h1>
+        <p class="lede">Free dictation for <strong>Mac and Windows</strong>. Hold a key, say what you mean, let go. Scribe Plus transcribes it, cleans out the ums and false starts, and pastes it into whatever app you're in.</p>
+
+        <div class="install" id="install">
+          <div class="tabs" role="tablist" aria-label="Choose your computer">
+            <button role="tab" id="tab-mac" aria-controls="panel-mac" aria-selected="true">Mac</button>
+            <button role="tab" id="tab-win" aria-controls="panel-win" aria-selected="false">Windows</button>
+          </div>
+
+          <div class="panel" id="panel-mac" role="tabpanel" aria-labelledby="tab-mac">
+            <p class="step">Open Terminal, paste this line, and press Return.</p>
+            <div class="cmd"><code id="cmd-mac">curl -fsSL https://scribeplus.feetham.us/install.sh | bash</code><button class="copy" data-copy="cmd-mac">Copy</button></div>
+            <p class="step">It installs everything in your own account, no admin password. macOS then asks you to turn on Scribe Plus for Input Monitoring, Accessibility and the microphone. Needs macOS 12 or newer. Run the same line again to update.</p>
+          </div>
+
+          <div class="panel" id="panel-win" role="tabpanel" aria-labelledby="tab-win" hidden>
+            <a class="btn" id="dl-win" href="https://github.com/will-feetham/scribe-plus/releases/latest/download/ScribePlus-Windows.zip">Download for Windows</a>
+            <p class="step">Unzip it and double-click <strong>Install Scribe Plus.bat</strong>. If Windows asks whether to run it, choose Run. It sets up Python if you need it.</p>
+            <p class="or">Or paste this into PowerShell:</p>
+            <div class="cmd"><code id="cmd-win">irm https://scribeplus.feetham.us/install.ps1 | iex</code><button class="copy" data-copy="cmd-win">Copy</button></div>
+            <p class="step">Windows 10 or 11. Installing a newer copy updates the old one and keeps your settings.</p>
+          </div>
+
+          <p class="step">You'll need a free <a href="https://console.groq.com/keys">Groq API key</a> for the speech and cleanup models; the installer asks for it.</p>
+          <p class="release" id="release">Always the latest release, straight from <a href="https://github.com/will-feetham/scribe-plus/releases">GitHub</a>.</p>
+        </div>
+      </div>
+
+      <div class="demo" aria-label="Example: speech turned into a clean message">
+        <div class="stage">
+          <p class="said" id="said" aria-hidden="true"><span class="who">You say</span><span id="said-text"></span></p>
+          <div class="field" aria-hidden="true"><span class="to">Message to Sam</span><span id="field-text"></span><span class="caret"></span></div>
+          <p class="keys"><span id="hold-label">Hold</span> <span id="keycaps"></span></p>
+        </div>
+        <div class="pill" id="pill" aria-hidden="true"><canvas id="pill-canvas" width="200" height="34"></canvas></div>
+      </div>
+    </section>
+
+    <section class="what" aria-labelledby="what-h">
+      <h2 id="what-h">What it does</h2>
+      <dl class="features">
+        <div><dt>Writes what you meant</dt><dd>Drops fillers and false starts, and applies your corrections: "Tuesday, no wait, Wednesday" comes out as Wednesday. Spoken lists become lists.</dd></div>
+        <div><dt>Edits by voice</dt><dd>Select some text, hold <span class="k-command"></span>, and say "make this friendlier" or "turn this into bullets". With nothing selected, it writes what you ask for.</dd></div>
+        <div><dt>Fits the app you're in</dt><dd>Casual in Slack and Messages, full sentences in email, exact in code editors and terminals.</dd></div>
+        <div><dt>Knows your words</dt><dd>Teach it names and jargon in a dictionary, and save snippets: say "insert my calendar link" and your link goes in.</dd></div>
+        <div><dt>Hands-free when you want</dt><dd>Double-tap the hotkey to keep talking without holding anything; tap again to finish. Esc cancels.</dd></div>
+        <div><dt>Shows you it's listening</dt><dd>A small pill above the Dock or taskbar follows your voice, then shows when the text is in.</dd></div>
+      </dl>
+    </section>
+
+    <section class="credit" aria-labelledby="credit-h">
+      <div>
+        <h2 id="credit-h">Built on Scribe</h2>
+        <p>Scribe Plus is a fork of <a href="https://github.com/avibrahms/scribe"><strong>Scribe</strong> by Avi Ibrahms</a>, a free, open-source push-to-talk dictation app. Scribe does the groundwork: recording, fast transcription, the paste that keeps your clipboard, and your history. Scribe Plus adds the cleanup, Command Mode and the rest on top.</p>
+      </div>
+      <div>
+        <h2>Where your words go</h2>
+        <p>Your audio goes to the speech service you pick (Groq by default), and the transcript to the cleanup model. Choose local Whisper and a local model and nothing leaves your computer. No account, no analytics.</p>
+        <p>Open source under the MIT license. <a href="https://github.com/will-feetham/scribe-plus">Read the code</a> or <a href="https://github.com/will-feetham/scribe-plus/issues">report a problem</a>.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer>Scribe Plus by Will Feetham, built on Scribe by Avi Ibrahms.</footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var REPO = "will-feetham/scribe-plus";
+  var KEYS = {
+    mac: { hold: ["Right ⌥ Option"], command: ["Right ⌥ Option", "⇧ Shift"] },
+    win: { hold: ["Ctrl", "Win"], command: ["Ctrl", "Win", "Alt"] }
+  };
+
+  // -- Which computer? -------------------------------------------------------
+  var ua = navigator.userAgent || "";
+  var plat = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
+  var os = /Mac|iPhone|iPad/.test(ua) ? "mac" : (/Win/i.test(ua) || /^Win/i.test(plat)) ? "win" : "mac";
+
+  function caps(list) {
+    return list.map(function (k) { return "<kbd>" + k + "</kbd>"; }).join(" + ");
+  }
+
+  function setOS(which) {
+    os = which;
+    ["mac", "win"].forEach(function (w) {
+      document.getElementById("tab-" + w).setAttribute("aria-selected", String(w === which));
+      document.getElementById("panel-" + w).hidden = w !== which;
+    });
+    document.getElementById("keycaps").innerHTML = caps(KEYS[which].hold);
+    document.querySelectorAll(".k-command").forEach(function (el) { el.innerHTML = caps(KEYS[which].command); });
+  }
+  document.getElementById("tab-mac").addEventListener("click", function () { setOS("mac"); });
+  document.getElementById("tab-win").addEventListener("click", function () { setOS("win"); });
+  document.querySelector(".tabs").addEventListener("keydown", function (e) {
+    if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+      var next = os === "mac" ? "win" : "mac";
+      setOS(next);
+      document.getElementById("tab-" + next).focus();
+    }
+  });
+  setOS(os);
+
+  // -- Copy buttons ------------------------------------------------------------
+  document.querySelectorAll(".copy").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var text = document.getElementById(btn.getAttribute("data-copy")).textContent;
+      var done = function () { btn.textContent = "Copied"; setTimeout(function () { btn.textContent = "Copy"; }, 1600); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function () { btn.textContent = "Select it"; });
+      } else {
+        var r = document.createRange(); r.selectNodeContents(document.getElementById(btn.getAttribute("data-copy")));
+        var s = window.getSelection(); s.removeAllRanges(); s.addRange(r); btn.textContent = "Press Ctrl+C";
+      }
+    });
+  });
+
+  // -- Latest release ------------------------------------------------------------
+  fetch("https://api.github.com/repos/" + REPO + "/releases/latest", { headers: { Accept: "application/vnd.github+json" } })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (rel) {
+      if (!rel || !rel.tag_name) return;
+      var when = new Date(rel.published_at).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+      var el = document.getElementById("release");
+      el.textContent = "Version " + rel.tag_name.replace(/^v/, "") + ", released " + when + ". ";
+      var a = document.createElement("a"); a.href = rel.html_url; a.textContent = "What's new";
+      el.appendChild(a);
+    })
+    .catch(function () {});
+
+  // -- The demo ---------------------------------------------------------------------
+  var SAID = [["um", 1], ["so", 1], ["I", 0], ["think", 0], ["we", 0], ["should", 0], ["uh", 1], ["meet", 0], ["on", 1],
+              ["tuesday", 1], ["no", 1], ["wait", 1], ["wednesday", 0], ["at", 0], ["like", 1], ["three", 0]];
+  var CLEAN = "I think we should meet Wednesday at 3.";
+  var saidEl = document.getElementById("said-text");
+  var fieldEl = document.getElementById("field-text");
+  var pill = document.getElementById("pill");
+  var canvas = document.getElementById("pill-canvas");
+  var ctx = canvas.getContext("2d");
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var dpr = Math.max(1, window.devicePixelRatio || 1);
+
+  function renderSaid(count, struck) {
+    saidEl.innerHTML = SAID.slice(0, count).map(function (w) {
+      return '<span class="w' + (w[1] ? " filler" : "") + (struck && w[1] ? " struck" : "") + '">' + w[0] + "</span>";
+    }).join(" ");
+  }
+  function press(down) {
+    document.querySelectorAll("#keycaps kbd").forEach(function (k) { k.classList.toggle("down", down); });
+  }
+
+  // Pill animation: same easing and shapes as the app's pill_model.py.
+  var P = { state: "hidden", w: 34, target: 34, a: 0, aTarget: 0, bars: [0,0,0,0,0,0,0,0,0], level: 0, tState: 0 };
+  function targetWidth(state) { return state === "recording" ? 98 : state === "processing" ? 72 : state === "done" ? 56 : 34; }
+  function setPill(state, now) {
+    if (state === "hidden") { P.aTarget = 0; P.target = 34; P.closing = true; return; }
+    P.closing = false; P.state = state; P.tState = now; P.target = targetWidth(state); P.aTarget = 0.96;
+  }
+  function drawPill(now, dt) {
+    P.w += (P.target - P.w) * (1 - Math.exp(-dt / 0.07));
+    P.a += (P.aTarget - P.a) * (1 - Math.exp(-dt / (P.closing ? 0.06 : 0.045)));
+    var w = Math.max(34, Math.round(P.w));
+    pill.style.width = w + "px";
+    pill.style.opacity = P.a.toFixed(3);
+    var cw = w - 2, ch = 32;
+    if (canvas.width !== cw * dpr) { canvas.width = cw * dpr; canvas.height = ch * dpr; canvas.style.width = cw + "px"; canvas.style.height = ch + "px"; }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cw, ch);
+    var room = P.target > 34 ? (P.w - 34) / (P.target - 34) : 1;
+    if (P.closing || room < 0.6) return;
+    var mid = ch / 2, i;
+    if (P.state === "recording") {
+      for (i = 0; i < 9; i++) {
+        var idle = 0.12 + 0.10 * Math.sin(now * 5 - i * 0.8);
+        var voice = P.level * (0.55 + 0.45 * Math.abs(Math.sin(now * 9 + i * 1.7)));
+        var target = Math.max(idle, voice);
+        P.bars[i] += (target - P.bars[i]) * (1 - Math.exp(-dt / 0.06));
+        var bh = 4 + 16 * Math.min(1, P.bars[i]);
+        var x = (cw - 51) / 2 + i * 6 + 1.5;
+        ctx.strokeStyle = "#F4F4F5"; ctx.lineWidth = 3; ctx.lineCap = "round";
+        ctx.beginPath(); ctx.moveTo(x, mid - bh / 2 + 1.5); ctx.lineTo(x, mid + bh / 2 - 1.5); ctx.stroke();
+      }
+    } else if (P.state === "processing") {
+      for (i = 0; i < 3; i++) {
+        var ph = (Math.sin(now * 7 - i * 0.95) + 1) / 2, r = 2.2 + 1.8 * ph;
+        var shade = Math.round(0x71 + (0xF4 - 0x71) * ph);
+        ctx.fillStyle = "rgb(" + shade + "," + shade + "," + Math.min(245, shade + 1) + ")";
+        ctx.beginPath(); ctx.arc(cw / 2 + (i - 1) * 12, mid - 2.5 * ph, r, 0, Math.PI * 2); ctx.fill();
+      }
+    } else if (P.state === "done") {
+      var p = Math.min(1, (now - P.tState) / 0.24); p = 1 - Math.pow(1 - p, 3);
+      var a = [cw / 2 - 7, mid], b = [cw / 2 - 2, mid + 5], c = [cw / 2 + 8, mid - 6];
+      var s1 = Math.hypot(b[0] - a[0], b[1] - a[1]), s2 = Math.hypot(c[0] - b[0], c[1] - b[1]), run = p * (s1 + s2);
+      ctx.strokeStyle = "#4ADE80"; ctx.lineWidth = 2.6; ctx.lineCap = "round"; ctx.lineJoin = "round";
+      ctx.beginPath(); ctx.moveTo(a[0], a[1]);
+      if (run <= s1) { ctx.lineTo(a[0] + (b[0] - a[0]) * run / s1, a[1] + (b[1] - a[1]) * run / s1); }
+      else { var k = (run - s1) / s2; ctx.lineTo(b[0], b[1]); ctx.lineTo(b[0] + (c[0] - b[0]) * k, b[1] + (c[1] - b[1]) * k); }
+      ctx.stroke();
+    }
+  }
+
+  if (reduce) {
+    renderSaid(SAID.length, true);
+    fieldEl.textContent = CLEAN;
+    return;
+  }
+
+  // Timeline (seconds), looping.
+  var LOOP = 10.5, last = performance.now() / 1000, start = last;
+  function frame() {
+    var now = performance.now() / 1000, dt = Math.min(0.1, now - last); last = now;
+    var t = (now - start) % LOOP;
+    if (t < 0.6) {
+      if (P.state !== "hidden" || P.a > 0.01) setPill("hidden", now);
+      renderSaid(0, false); fieldEl.textContent = ""; press(false);
+    } else if (t < 3.6) {
+      if (P.state !== "recording" || P.closing) { setPill("recording", now); press(true); }
+      var words = Math.min(SAID.length, Math.floor((t - 0.75) / 2.6 * SAID.length) + 1);
+      if (saidEl.childElementCount !== words) renderSaid(words, false);
+      P.level = 0.35 + 0.6 * Math.abs(Math.sin(t * 3.1)) * (Math.sin(t * 1.3) > -0.6 ? 1 : 0.1);
+    } else if (t < 4.5) {
+      if (P.state !== "processing") { setPill("processing", now); press(false); P.level = 0; }
+    } else if (t < 5.6) {
+      if (P.state !== "done") { setPill("done", now); fieldEl.textContent = CLEAN; renderSaid(SAID.length, true); }
+    } else if (P.state !== "hidden" && !P.closing) {
+      setPill("hidden", now);
+    }
+    drawPill(now, dt);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

@@ -167,7 +167,7 @@ class DictationEngine:
         with self._lock:
             if self._session is not None:
                 return
-            s = Session(next(self._ids), time.monotonic(), previous=self._latest)
+            s = Session(next(self._ids), time.perf_counter(), previous=self._latest)
             self._session = s
             self._latest = s
         self.settings.maybe_reload()
@@ -189,7 +189,7 @@ class DictationEngine:
         s.previous = None
         if prev is not None and not prev.stopped.wait(10.0):
             log.warning("previous recording still stopping after 10s; starting anyway")
-        t0 = time.monotonic()
+        t0 = time.perf_counter()
         try:
             s.recorder = self.hooks.recorder_factory()
             s.recorder.start()
@@ -202,7 +202,7 @@ class DictationEngine:
             self.platform.ui("error", message="Microphone error")
             self.platform.notify("Microphone error", str(exc)[:180])
             return
-        s.mic_open_ms = (time.monotonic() - t0) * 1000.0
+        s.mic_open_ms = (time.perf_counter() - t0) * 1000.0
         with self._lock:
             s.opened = True
             ended = s.end is not None
@@ -235,7 +235,7 @@ class DictationEngine:
             self._session = None
             s.end = mode
             s.cancel_reason = reason
-            s.t_release = time.monotonic()
+            s.t_release = time.perf_counter()
             opened = s.opened
         s.meter_stop.set()
         if mode == "cancel":
@@ -247,7 +247,7 @@ class DictationEngine:
         # Otherwise _open() finishes the session as soon as the mic is open.
 
     def _finish(self, s: Session) -> None:
-        t0 = time.monotonic()
+        t0 = time.perf_counter()
         try:
             wav, dur_ms = s.recorder.stop()
         except Exception as exc:
@@ -255,7 +255,7 @@ class DictationEngine:
             wav, dur_ms = b"", 0
         finally:
             s.stopped.set()
-        s.stop_ms = (time.monotonic() - t0) * 1000.0
+        s.stop_ms = (time.perf_counter() - t0) * 1000.0
         if s.end == "cancel":
             return
         self._jobs.put((s, wav, dur_ms))
@@ -288,13 +288,13 @@ class DictationEngine:
         }
 
         def ms_since_release() -> float:
-            return (time.monotonic() - s.t_release) * 1000.0
+            return (time.perf_counter() - s.t_release) * 1000.0
 
         if not wav or dur_ms < MIN_AUDIO_MS:
             self.platform.ui("idle")
             return None
 
-        t = time.monotonic()
+        t = time.perf_counter()
         try:
             prep = audio.prepare(wav, boost=bool(st.get("quiet_voice_boost")),
                                  trim=bool(st.get("trim_silence")))
@@ -302,7 +302,7 @@ class DictationEngine:
             log.warning("audio prep failed, sending raw audio: %s", exc)
             prep = audio.Prepared(wav, 16000, dur_ms / 1000.0, dur_ms / 1000.0,
                                   0.0, 0.0, 0.0, 0.0, False)
-        row.update(prep_ms=(time.monotonic() - t) * 1000.0, audio_s=prep.duration_s,
+        row.update(prep_ms=(time.perf_counter() - t) * 1000.0, audio_s=prep.duration_s,
                    speech_s=prep.kept_s, gain_db=prep.gain_db)
         if prep.silent:
             row["error"] = "silent"
@@ -390,7 +390,7 @@ class DictationEngine:
 
         if (mode != "command" and st.get("auto_space") and style_key != "code"
                 and self._last_paste and self._last_paste.hwnd == s.context.hwnd
-                and time.monotonic() - self._last_paste.t < SPACE_WINDOW_S
+                and time.perf_counter() - self._last_paste.t < SPACE_WINDOW_S
                 and textproc.needs_leading_space(self._last_paste.text, final)):
             final = " " + final
 
@@ -400,16 +400,16 @@ class DictationEngine:
         except Exception as exc:
             log.warning("history append failed: %s", exc)
 
-        t = time.monotonic()
+        t = time.perf_counter()
         if self.platform.wait_modifiers_released(2.0):
             self.platform.paste(final, restore=restore)
-            self._last_paste = _LastPaste(s.context.hwnd, final, time.monotonic())
+            self._last_paste = _LastPaste(s.context.hwnd, final, time.perf_counter())
             self.platform.ui("done")
         else:
             # Keys still held: pasting now would fire Win+Ctrl+V and friends.
             self.platform.copy(final)
             self.platform.ui("info", message=f"Copied: press {self.platform.paste_hint}")
-        row["paste_ms"] = (time.monotonic() - t) * 1000.0
+        row["paste_ms"] = (time.perf_counter() - t) * 1000.0
         row["final_text"] = final
         row["words_final"] = len(textproc.word_list(final))
         self._finish_row(row, ms_since_release())

@@ -66,7 +66,7 @@ def test_settings_written_merged_and_reloaded(tmp_path):
     path = tmp_path / "settings.json"
     st = S.SettingsStore(path)
     on_disk = json.loads(path.read_text())
-    assert on_disk["hotkey"] == "ctrl_win" and on_disk["cleanup_models"]["groq"] == "openai/gpt-oss-20b"
+    assert on_disk["hotkey"] == S.DEFAULTS["hotkey"] and on_disk["cleanup_models"]["groq"] == "openai/gpt-oss-20b"
 
     path.write_text(json.dumps({"hotkey": "right_alt", "cleanup_models": {"groq": "openai/gpt-oss-120b"}}))
     import os
@@ -83,7 +83,7 @@ def test_broken_settings_file_is_left_alone(tmp_path):
     path = tmp_path / "settings.json"
     path.write_text("{ not json")
     st = S.SettingsStore(path)
-    assert st.get("hotkey") == "ctrl_win"
+    assert st.get("hotkey") == S.DEFAULTS["hotkey"]
     assert path.read_text() == "{ not json"
 
 

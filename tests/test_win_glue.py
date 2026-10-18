@@ -175,6 +175,8 @@ def test_app_wiring_end_to_end(monkeypatch, tmp_path):
     monkeypatch.setattr(C, "paste_text", lambda text, **kw: pasted.append(text))
     monkeypatch.setattr(C, "wait_modifiers_released", lambda timeout: True)
     monkeypatch.setattr(keys, "send_mask", lambda: masks.append(1))
+    # The fake key presses aren't physically held on a real Windows machine.
+    monkeypatch.setattr(keys, "physically_down", lambda vk: True)
 
     app = scribe_plus_windows.App(debug=True)
     try:
