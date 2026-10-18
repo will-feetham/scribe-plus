@@ -67,6 +67,32 @@ jobs:
         run: |
           "$RUNNER_TEMP/Applications/Scribe Plus.app/Contents/MacOS/Scribe Plus" --smoke-test "$RUNNER_TEMP/smoke"
           codesign -dv "$RUNNER_TEMP/Applications/Scribe Plus.app" 2>&1 | grep -E "Identifier|Signature"
+      - name: Smoke report in the run summary
+        if: always()
+        run: |
+          {
+            echo "### Mac smoke test"
+            echo '```'
+            cat "$RUNNER_TEMP/smoke/report.txt" 2>/dev/null || echo "no report"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          python - "$RUNNER_TEMP/smoke" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import base64, glob, io, sys
+          from PIL import Image
+          shots = sorted(glob.glob(sys.argv[1] + "/pill-*.png"))
+          if shots:
+              imgs = [Image.open(p).convert("RGBA") for p in shots]
+              w = max(i.width for i in imgs) + 20
+              sheet = Image.new("RGBA", (w, sum(i.height + 10 for i in imgs) + 10), (238, 240, 244, 255))
+              y = 10
+              for i in imgs:
+                  sheet.alpha_composite(i, (10, y))
+                  y += i.height + 10
+              buf = io.BytesIO()
+              sheet.save(buf, "PNG", optimize=True)
+              print("Pill contact sheet (PNG, base64):")
+              print("SHEET-BEGIN " + base64.b64encode(buf.getvalue()).decode() + " SHEET-END")
+          PY
       - uses: actions/upload-artifact@v7
         if: always()
         with:
