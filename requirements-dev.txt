@@ -1,0 +1,3 @@
+# For running the tests:  venv\Scripts\python.exe -m pytest
+-r requirements-plus.txt
+pytest>=8

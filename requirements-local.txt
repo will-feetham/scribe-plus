@@ -1,0 +1,2 @@
+# Optional offline speech-to-text. "Install local Whisper.bat" installs it.
+faster-whisper>=1.0

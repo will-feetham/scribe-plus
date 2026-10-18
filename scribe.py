@@ -498,7 +498,7 @@ _FLAG_COMMAND = 0x00100000
 _FLAG_FN      = 0x00800000  # Secondary Fn / Globe
 
 # Virtual keycodes for the modifier keys (left vs right are distinct).
-#   Fn/Globe = 63, but Wispr Flow and macOS "Hold Globe to dictate" both
+#   Fn/Globe = 63, but other dictation apps and macOS "Hold Globe to dictate"
 #   claim Fn, so we default to Right Option to avoid collisions.
 HOTKEYS: dict[str, tuple[int, int, str]] = {
     # id          : (virtual_keycode, flag_mask, label)

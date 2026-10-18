@@ -6,3 +6,7 @@ menubar.log
 build/
 dist/
 .DS_Store
+
+# Scribe Plus
+.pytest_cache/
+*.tmp

@@ -1,188 +1,187 @@
-# Scribe
+<img src="assets/icon.png" width="72" alt="Scribe Plus icon" align="right">
 
-**A free, local, cross-platform menubar/tray app for push-to-talk dictation and text-to-speech. A drop-in replacement for [Wispr Flow](https://wisprflow.ai/).**
+# Scribe Plus
 
-Hold a modifier key anywhere on your computer, speak, release → the transcript pastes into whatever text field you're looking at. Miss the text field? Press `⌃⌘V` (macOS) or `Ctrl+Alt+V` (Windows) to paste the last transcript again. Every transcript is kept in a scrollable history you can copy from.
+**AI dictation for Windows, built on [Scribe](https://github.com/avibrahms/scribe) by Avi Ibrahms.**
 
-No subscription, no account, no telemetry. The only thing that leaves your computer is a ~3-second audio clip sent to Groq's free Whisper API, and an optional TTS text string sent to the read-aloud engine you pick (Microsoft Edge's free endpoint, or OpenAI).
+Hold a hotkey, talk, let go. Your words are transcribed, cleaned up and pasted wherever your
+cursor is, in any app.
 
-**Supported:** macOS 12+ · Windows 10+
+> **Credit where it's due.** Scribe Plus is a fork of [Scribe](https://github.com/avibrahms/scribe),
+> Avi Ibrahms' free, open-source push-to-talk dictation app for macOS and Windows (MIT). Scribe
+> does the hard groundwork: recording, fast transcription through Groq, the paste that keeps your
+> clipboard, history, and a filter for the phantom phrases speech models invent in silence.
+> Scribe Plus reuses all of that and adds an AI layer on top. If you're on a Mac, or you want
+> read-aloud (text-to-speech), use [Scribe](https://github.com/avibrahms/scribe) itself.
 
-## Why I built it
+## What Scribe Plus adds to Scribe
 
-Wispr Flow is great, but it's **$12/month**, proprietary, and sends your audio and transcripts to their servers. Scribe does the same core job — push-to-talk dictation with automatic paste — for $0, in ~1000 lines of Python you can read in one sitting.
-
-| | Wispr Flow | Scribe |
+| | Scribe | Scribe Plus |
 |---|---|---|
-| Push-to-talk anywhere | ✓ | ✓ |
-| Auto-pastes into focused field | ✓ | ✓ |
-| Transcript history | ✓ | ✓ |
-| Multi-language dictation | ✓ | ✓ (Whisper-large-v3-turbo) |
-| TTS read-aloud | ✗ | ✓ (OpenAI or Microsoft Edge voices) |
-| Per-language TTS voice | ✗ | ✓ (auto-detected, offline) |
-| Clipboard preserved during paste | — | ✓ (macOS: full; Windows: text) |
-| Open source | ✗ | ✓ (MIT) |
-| Cost | $12 / month | **$0** |
+| Push-to-talk dictation, auto-paste, history | ✓ | ✓ (Scribe's own code) |
+| AI cleanup: fillers, false starts, "no wait" corrections, lists, numbers | | ✓ |
+| Command Mode: rewrite selected text by voice | | ✓ |
+| Personal dictionary and voice snippets | | ✓ |
+| Tone that fits the app you're in (Slack, Gmail, VS Code...) | | ✓ |
+| Hands-free mode (double-tap, no holding) | | ✓ |
+| Animated status pill above the taskbar | | ✓ |
+| Latency and cost log, plus a benchmark across engines | | ✓ |
+| Read-aloud (text-to-speech) | ✓ | |
+| macOS | ✓ | |
+| Windows | ✓ | ✓ |
 
-## How it works
+## Quick start (Windows 10 or 11)
 
-- **STT (dictation)**: hold a modifier key (default: Right ⌥/Alt) → record via `sounddevice` → send WAV to **Groq's free Whisper API** (`whisper-large-v3-turbo`) → snapshot the clipboard → paste the transcript → restore your clipboard.
-- **TTS (read-aloud)**: any selected text → choose your engine from the menu (**TTS Engine**):
-  - **OpenAI** (default) — `gpt-4o-mini-tts`: very natural, emotionally expressive voices (Coral, Nova, Shimmer, Sage, Ash, Onyx, Fable, …). Needs an OpenAI API key (set it via *Set OpenAI API key…*); costs ~$0.015/min.
-  - **Microsoft Edge** — free, unlimited Edge neural voices (Ava, Andrew, Brian, Emma, William, Sonia, Natasha, Denise, Elvira, Katja, Elsa, etc.), no API key.
+1. Download this repo (green **Code** button, then **Download ZIP**) and unzip it, or `git clone` it.
+2. Double-click **Install Scribe Plus.bat**. It finds Python 3.10 to 3.13 (and offers to install
+   3.12 if it's missing), installs the packages into `venv\`, asks for a free Groq API key (get
+   one at [console.groq.com/keys](https://console.groq.com/keys)), and starts the app.
+3. Look for the five-bar icon in the system tray (click `^` by the clock if it's hidden).
+4. Click into any text box, hold **Ctrl+Win**, talk, and let go.
 
-  The engine and per-engine voice are remembered across relaunch. Keys are stored only in the gitignored `.env` and a `0600` file under `~/.config/speak-selection/` — never committed.
-- **Per-language voices**: the language of the text is detected before it is spoken, and each language uses the voice you picked for it — Henri for French, William for English, and so on, per engine. Set them under *Voice* in either engine's tuning menu: pick a voice inside a language's submenu and the ✓ stays there. A language you never pick still gets its own default voice, so every language submenu always shows a ✓ on the voice it will actually use — on Edge that is a voice of the matching locale (Spanish text is read by a Spanish voice, never by whatever the global default happens to be), and on OpenAI, whose voices all speak every language, it is a distinct voice per language dealt from the catalogue. Only genuinely unidentifiable text falls through to *Default — when language is unclear*, and *Auto-detect language* turns the whole thing off.
+After that, **Scribe Plus.bat** starts it, or let it start when you sign in (the installer asks).
 
-  Detection is offline and dependency-free (`bin/tts_lang.py`) — no text is sent anywhere to identify it. It covers the languages Scribe ships voices for (English, French, Spanish, German, Italian) and deliberately answers "unsure" rather than guessing, in which case the default voice is used. The app and the standalone ⌃D/⌃X helpers share the one detector, so both pick the same voice for the same text. macOS only for now — the Windows tray app keeps the single-voice behaviour.
-- **Read aloud never goes silent**: when an engine can't speak, the next one takes over and a notification says why. OpenAI (no key, no credits, no network) hands the unread text to Edge. Edge tries every Microsoft endpoint, starting with the last one that worked; if Microsoft refuses them all (it changes its protocol every few months), the helper upgrades its own `edge-tts` — at most once an hour — and tries again. When even that fails, the Mac's built-in voice reads the text, in the text's language (`bin/tts_fallback.py`, macOS only). A *Read aloud failed* notification only appears when nothing at all could speak.
-- **Hotkey observation**: a listen-only global key watcher (`CGEventTap` on macOS, `pynput` on Windows) — never intercepts or blocks keystrokes.
-- **Persistence**: auto-starts at login (`launchd` on macOS, Startup-folder shortcut on Windows).
+## What you can do
 
-## Repo layout
+| Gesture (default hotkey) | What happens |
+|---|---|
+| Hold **Ctrl+Win**, talk, release | Dictation: transcribed, cleaned up, pasted at the cursor |
+| Hold **Ctrl+Win+Alt**, talk, release | Command Mode: rewrites the selected text ("make this friendlier", "turn this into bullets"). With nothing selected, it writes what you ask for |
+| Double-tap **Ctrl+Win** | Hands-free: keeps listening; press Ctrl+Win again to finish |
+| **Esc** while recording | Cancel (the Esc is swallowed so it doesn't close your dialog) |
+| **Ctrl+Alt+V** | Paste the last dictation again |
+| Ctrl+Win plus any other key | Ignored, so Windows shortcuts like Ctrl+Win+D still work |
 
-```
-scribe_core.py            — platform-agnostic: audio, transcription, history, voices
-scribe.py                 — macOS entry (rumps / AppKit / Quartz)
-scribe_windows.py         — Windows entry (pystray / pynput / pyperclip)
-bin/tts_lang.py           — offline language detector, shared by the app + helpers
-bin/tts_fallback.py       — fallbacks shared by the helpers (Mac voice, notifications)
-bin/edge-tts-stream       — standalone Edge TTS helper (⌃D / ⌃X Quick Actions)
-bin/openai-tts-stream     — standalone OpenAI TTS helper
-bin/speak-selection.sh    — routes the Quick Actions to the selected engine
-setup.py                  — macOS .app build recipe (py2app)
-install.sh                — macOS installer
-install.bat               — Windows installer
-Launch Scribe.command     — macOS launcher (alternative to .app)
-Scribe.bat                — Windows launcher
-requirements.txt          — shared deps
-requirements-mac.txt      — macOS-only deps
-requirements-windows.txt  — Windows-only deps
-```
+Other hotkeys (Right Alt, Right Ctrl, Right Shift and more) are in the tray menu.
 
-Both OS entry points import from `scribe_core`, so logic fixes land in one place.
+The cleanup pass removes fillers and false starts, applies self-corrections ("Tuesday, no wait,
+Wednesday" becomes "Wednesday"), turns spoken lists into lists, and formats numbers, emails and
+links. It is told never to answer or act on what you say, and a guard falls back to a plain
+cleanup if the model's output looks like an answer or a rewrite.
 
----
+**App-aware style** picks a tone from the window you're in: casual for Slack, Teams and Discord;
+full paragraphs for Gmail and Outlook; literal for VS Code, Cursor and terminals; plain requests
+for chat assistants. The rules live in `settings.json` (`app_rules`, `styles`). Changes made from
+the tray menu apply instantly; hand edits to `settings.json` apply on the next dictation, except
+the hotkey, hands-free and Command Mode switches, which apply after a restart.
 
-## macOS install
+**Dictionary** (`dictionary.txt`): put names and jargon one per line so they're spelled right,
+or `heard -> written` to fix a word the speech model keeps getting wrong.
 
-**Requirements:**
-- macOS 12 (Monterey) or newer — Scribe uses `CGEventTap`, `NSPasteboard`, `NSEvent`.
-- Python 3.11+ (tested on 3.12). `brew install python@3.12`.
-- A free Groq API key from [console.groq.com/keys](https://console.groq.com/keys).
+**Snippets** (`snippets.txt`): `insert my calendar link = https://cal.com/you`. Say the trigger
+phrase and the saved text goes in instead.
 
-```bash
-git clone https://github.com/avibrahms/scribe.git ~/Applications/Scribe
-cd ~/Applications/Scribe
-./install.sh
-```
+Both files, `settings.json` and the logs live in `%APPDATA%\scribe\plus`. The tray menu opens
+each of them.
 
-`install.sh` will:
-1. Create a `venv/` and install `requirements.txt` + `requirements-mac.txt`.
-2. Prompt for your Groq API key and write it to `.env` (gitignored, `chmod 600`).
-3. Build `Scribe.app` via `py2app`, ad-hoc signed as `com.avi.scribe`, install to `~/Applications/Scribe.app`.
-4. Install a `launchd` agent so it auto-starts at login and restarts if it exits.
-5. Open the Input Monitoring pane so you can grant the first permission.
+## Engines and what they cost
 
-After install, look for 🎙 in your menubar.
-
-### macOS permissions (one-time)
-
-Scribe needs three standard permissions under **System Settings → Privacy & Security**:
-
-- **Input Monitoring** — to observe the push-to-talk hotkey
-- **Accessibility** — to synthesize ⌘V and paste the transcript
-- **Microphone** — to record
-
-Because Scribe is a signed bundle with a stable identifier, you grant these **once** — they persist across reboots, relaunches, and Python upgrades.
-
----
-
-## Windows install
-
-**Requirements:**
-- Windows 10 or 11.
-- Python 3.11+ from [python.org/downloads](https://www.python.org/downloads/) — **during install, tick "Add python.exe to PATH".**
-- A free Groq API key from [console.groq.com/keys](https://console.groq.com/keys).
-
-**Install:**
-1. Download the repo as a ZIP (green *Code* button → *Download ZIP*) and extract it somewhere like `C:\Scribe\`. (Or `git clone` if you have Git installed.)
-2. Open the extracted folder in File Explorer.
-3. Double-click **`install.bat`**.
-4. When prompted, paste your Groq API key and press Enter.
-5. Scribe launches and pins itself to start at login.
-
-Look for the mic icon in the **system tray** (bottom-right of the taskbar). Windows hides tray icons by default — click the `^` chevron and drag Scribe out to make it permanently visible.
-
-### Windows permissions
-
-Windows has no TCC/permissions system to grant — Scribe just works. Caveats:
-
-- **Antivirus**: some AV products (Defender, Kaspersky) may flag `pynput` as a keylogger the first time it observes a key. This is a false positive — `pynput` only watches for your hotkey locally and never sends anything anywhere. Whitelist `pythonw.exe` in your repo's `venv\Scripts\` if it gets blocked.
-- **Microphone**: Windows 10/11 may prompt the first time Scribe records. Allow it under Settings → Privacy & security → Microphone.
-
----
-
-## Usage (both OSes)
-
-- **Dictate**: hold your chosen hotkey → speak → release. Transcript pastes where your cursor is.
-- **Re-paste the last transcript**: `⌃⌘V` on macOS, `Ctrl+Alt+V` on Windows.
-- **Change hotkey**: tray menu → *Dictation Hotkey*. Options differ slightly per OS (macOS has Fn/🌐 + left/right modifiers; Windows has left/right Alt/Ctrl/Shift/Win).
-- **Change dictation language**: tray menu → *Dictation Language*.
-- **Choose the microphone** (macOS): menu → *Microphone*. The choice is kept even when macOS makes a reconnecting Bluetooth headset the default input again; *System default* follows macOS. A Bluetooth mic needs a moment to wake up, so wait for 🔴 before speaking, and Scribe keeps listening 0.4s after you release the key to catch the words still on their way. Built-in and USB mics get neither delay.
-- **Speak text aloud**: tray menu → *Test Voice*, or *Read selected text* (⌃D) / *Read copied text* (⌃X).
-- **Set a voice per language**: tray menu → *OpenAI TTS — tuning* or *Microsoft Edge TTS — tuning* → *Voice* → pick a voice inside a language's submenu.
-- **Browse history**: tray menu → *History*. Click any entry to copy it.
-
-## File locations
-
-| | macOS | Windows |
+| Stage | Default | Alternatives in the tray menu |
 |---|---|---|
-| Config + history | `~/.config/scribe/` | `%APPDATA%\scribe\` |
-| `.env` (API key) | repo dir, `chmod 600` | repo dir |
-| Auto-start | `~/Library/LaunchAgents/com.avi.scribe.plist` | `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Scribe.lnk` |
+| Speech-to-text | Groq `whisper-large-v3-turbo` | Groq `whisper-large-v3`, OpenAI `gpt-4o-mini-transcribe`, local Whisper (offline) |
+| Cleanup | Groq `openai/gpt-oss-20b` | Groq `openai/gpt-oss-120b`, Claude Haiku 5.5, a local model via Ollama, Off |
+| Command Mode | Groq `openai/gpt-oss-120b` | follows the cleanup engine |
 
-## Privacy
+Why these defaults:
 
-- Audio: sent to `api.groq.com` for transcription. Groq's policy is on [their site](https://groq.com/privacy-policy/).
-- TTS text: sent to the selected engine — Microsoft's Edge read-aloud endpoint (free) or OpenAI's `api.openai.com` (when the OpenAI engine is selected).
-- TTS language detection runs entirely on your machine (`bin/tts_lang.py`, no dependencies, no network) — text is never sent anywhere just to identify its language.
-- Nothing else leaves your machine. No analytics, no crash reporting, no phone-home.
-- Transcript history is stored locally as plain JSON Lines — easy to grep or delete.
+- Speed decides whether dictation feels natural. About 1 second is the limit for your flow of
+  thought to stay uninterrupted, and 0.1 second feels instant
+  ([Nielsen Norman Group](https://www.nngroup.com/articles/response-times-3-important-limits/)).
+  So the defaults are the fastest cloud models available, and the latency log measures the time
+  from releasing the key to text on screen for every dictation.
+- Groq Whisper Large v3 Turbo runs at about 216x real time for $0.04 per audio hour, billed at a
+  10-second minimum per request ([Groq](https://groq.com/whisper-large-v3-turbo-now-available-on-groq-combining-speed-quality-for-speech-recognition/),
+  [pricing](https://groq.com/pricing)), so about $0.0001 per dictation.
+- Groq retired its Llama models for free and developer accounts on 2026-08-16 and points to
+  `openai/gpt-oss-20b` as the replacement ([Groq deprecations](https://console.groq.com/docs/deprecations)).
+  Groq lists gpt-oss-20b at about 1,000 tokens per second, $0.075 in and $0.30 out per million
+  tokens ([Groq models](https://console.groq.com/docs/models)). Scribe Plus asks it for low
+  reasoning effort to keep latency down.
+- Free tier limits (third-party reading, August 2026): gpt-oss models get 30 requests per minute,
+  1,000 per day, 8,000 tokens per minute
+  ([ampm-aiops](https://ampm-aiops.com/en/guides/groq-free-tier-llama-removed-gpt-oss-2026/)).
+  A cleanup call is roughly 700 tokens, so heavy days may need Groq's pay-as-you-go tier.
+- Local Whisper is free and private but runs on the CPU, so expect seconds per dictation, not a
+  fraction of one. Install it with **Install local Whisper.bat**.
 
-## Uninstall
+The tray's **Check setup** item confirms your keys work and that the configured models are still
+served on your account, since providers retire models.
 
-**macOS:**
-```bash
-launchctl bootout gui/$(id -u)/com.avi.scribe
-rm -rf ~/Applications/Scribe ~/Applications/Scribe.app
-rm -f ~/Library/LaunchAgents/com.avi.scribe.plist
-rm -rf ~/.config/scribe
+## Research tools
+
+**Latency log** (`metrics.csv`, tray > Open latency log): one row per dictation with the time
+for each stage (mic open, stop, audio prep, speech, cleanup, paste), the total from key release
+to text on screen, token counts, an estimated cost, the guard result, the raw transcript and the
+final text. Window titles are not logged unless you set `log_window_titles` to true.
+
+**Benchmark** (**Benchmark.bat** or tray > Run benchmark): replays your newest saved clips
+through every speech and cleanup engine you have keys for, then writes a CSV and an HTML report
+with median and 90th-percentile latency, cost per 1,000 dictations, speech disagreement versus
+Whisper Large v3, and guard rejections. It also summarizes your real dictations from the latency
+log. Clips are saved only while "Save audio for benchmarks" is on (the newest 300 are kept).
+
+## What leaves your computer
+
+Audio goes to the speech provider you pick (Groq by default), and the transcript goes to the
+cleanup provider (Groq by default). With local Whisper and Ollama, nothing leaves the machine.
+API keys live only in this folder's `.env`, which git ignores. Audio clips, history and logs stay
+in `%APPDATA%\scribe\plus`. There is no analytics or phone-home, same as Scribe.
+
+## Troubleshooting
+
+- **Run "Scribe Plus (debug).bat"** to watch the log live (quit the tray copy first). The log is
+  also in `%APPDATA%\scribe\plus\scribe-plus.log`.
+- **The Start menu pops up after Ctrl+Win.** Scribe Plus taps an unassigned key while Win is held
+  to stop this (the same trick AutoHotkey uses). If it still happens, pick another hotkey in the
+  tray menu; Right Ctrl is the simplest.
+- **Nothing pastes into an app running as administrator.** Windows blocks a normal app from
+  typing into an elevated one. Run that app normally, or run Scribe Plus as administrator.
+- **Antivirus warns about pynput.** As with Scribe, the hotkey uses a keyboard hook that some
+  antivirus tools flag. It only watches for the hotkey locally.
+- **No audio.** Settings > Privacy & security > Microphone > allow desktop apps. Pick a specific
+  mic under tray > Microphone.
+- **VS Code and Command Mode.** With nothing selected, VS Code copies the whole line on Ctrl+C,
+  so select the text you want rewritten first.
+- **Clipboard.** As in Scribe on Windows, only text survives the paste round trip; an image you
+  had copied is replaced by the dictated text.
+
+## How it's put together
+
+```
+scribe_plus_windows.py   tray app entry point (Windows)
+benchmark.py             engine comparison on your own clips
+scribe_plus/
+  hotkeys.py             gesture state machine (pure Python, unit-tested)
+  pipeline.py            record > prep > speech > cleanup/command > paste > log
+  engines.py             Groq, OpenAI, Anthropic, Ollama, local Whisper; keep-alive + prewarm
+  textproc.py            prompts, guard, dictionary, snippets, fallback cleanup
+  audio.py               silence check, quiet-voice boost, edge trimming
+  metrics.py, settings.py
+  win/                   keyboard hook, clipboard, foreground app, status pill, tray icon, dialogs
+tests/                   run with: venv\Scripts\python.exe -m pytest
 ```
 
-**Windows:** delete the Scribe folder, then delete the Startup shortcut:
+Scribe's own files are here too: `scribe_core.py` (shared engine), `scribe_windows.py` and
+`scribe.py` (Scribe's Windows and macOS apps), `install.bat`, `install.sh` and the `bin/`
+read-aloud helpers. Scribe Plus imports Scribe's recorder, history and hallucination filter from
+`scribe_core.py` and leaves those files as they are, so Scribe's fixes merge cleanly:
+
 ```
-%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Scribe.lnk
-%APPDATA%\scribe\
+git remote add upstream https://github.com/avibrahms/scribe   (once)
+git pull upstream main
 ```
 
-## Contributing cross-platform changes
-
-All shared logic goes in `scribe_core.py`. If you add a feature:
-
-- If it's pure logic (audio, networking, history, config) → `scribe_core.py`, used by both.
-- If it's UI / global hotkey / paste / clipboard → per-OS file (`scribe.py` or `scribe_windows.py`).
-- If it's a new OS port → add `scribe_<os>.py` and a matching `requirements-<os>.txt`.
+To work on Scribe Plus, install the test tools with
+`venv\Scripts\python.exe -m pip install -r requirements-dev.txt`, then run the tests as above.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Do whatever you want with it.
+MIT, see [LICENSE](LICENSE). Scribe is copyright Avi Ibrahms; the Scribe Plus additions are
+copyright Will Feetham, under the same license.
 
-## Acknowledgements
+## Thanks
 
-- [rumps](https://github.com/jaredks/rumps) — the macOS menubar framework.
-- [pystray](https://github.com/moses-palmer/pystray) — the cross-platform tray framework (used on Windows).
-- [pynput](https://github.com/moses-palmer/pynput) — cross-platform keyboard observation.
-- [edge-tts](https://github.com/rany2/edge-tts) — Microsoft Edge read-aloud voices, no API key.
-- [Groq](https://groq.com/) — fast, free Whisper inference.
-- [Wispr Flow](https://wisprflow.ai/) — the commercial product that inspired this one.
+- [Scribe](https://github.com/avibrahms/scribe) by Avi Ibrahms, the app this is built on.
+- [Groq](https://groq.com/) for fast Whisper and gpt-oss inference.
+- [pystray](https://github.com/moses-palmer/pystray) and [pynput](https://github.com/moses-palmer/pynput)
+  for the tray icon and keyboard hook.
