@@ -1,7 +1,8 @@
 """
 Settings, data paths, and the user-editable dictionary and snippet files.
 
-Everything Scribe Plus writes lives in one folder:
+Everything Scribe Plus writes lives in one folder (API keys excepted: they
+sit in the app folder's .env):
   Windows: %APPDATA%\\scribe\\plus
   macOS:   ~/.config/scribe/plus
   other:   $XDG_CONFIG_HOME/scribe/plus
@@ -83,12 +84,18 @@ STYLES: dict[str, str] = {
     "default": "General writing. Natural written style with standard punctuation.",
 }
 
-# Checked in order. A rule matches on the foreground process name first;
-# title keywords catch web apps running inside a browser tab.
+# Checked in order. A rule matches on the foreground app first (process name
+# on Windows, bundle identifier on a Mac); title keywords catch web apps
+# running inside a browser tab.
 APP_RULES: list[dict] = [
     {
         "style": "email",
-        "processes": ["outlook.exe", "olk.exe", "thunderbird.exe", "hxoutlook.exe"],
+        "processes": [
+            "outlook.exe", "olk.exe", "thunderbird.exe", "hxoutlook.exe",
+            # Mac (bundle identifiers)
+            "com.apple.mail", "com.microsoft.outlook", "org.mozilla.thunderbird",
+            "com.readdle.smartemail-mac", "com.superhuman.electron",
+        ],
         "titles": ["gmail", "outlook", "proton mail", "yahoo mail", "fastmail"],
     },
     {
@@ -97,6 +104,10 @@ APP_RULES: list[dict] = [
             "slack.exe", "teams.exe", "ms-teams.exe", "discord.exe",
             "whatsapp.exe", "whatsapp.root.exe", "telegram.exe", "signal.exe",
             "messenger.exe",
+            "com.tinyspeck.slackmacgap", "com.microsoft.teams2", "com.microsoft.teams",
+            "com.hnc.discord", "net.whatsapp.whatsapp", "ru.keepcoder.telegram",
+            "org.telegram.desktop", "org.whispersystems.signal-desktop",
+            "com.apple.mobilesms", "com.facebook.archon.developerid",
         ],
         "titles": [
             "slack", "discord", "whatsapp", "messenger", "google chat",
@@ -105,7 +116,8 @@ APP_RULES: list[dict] = [
     },
     {
         "style": "ai",
-        "processes": ["claude.exe", "chatgpt.exe"],
+        "processes": ["claude.exe", "chatgpt.exe", "com.anthropic.claudefordesktop",
+                      "com.openai.chat"],
         "titles": ["chatgpt", "claude", "gemini", "perplexity", "copilot"],
     },
     {
@@ -116,6 +128,11 @@ APP_RULES: list[dict] = [
             "notepad++.exe", "windowsterminal.exe", "wt.exe", "powershell.exe",
             "pwsh.exe", "cmd.exe", "conhost.exe", "alacritty.exe",
             "wezterm-gui.exe",
+            "com.microsoft.vscode", "com.todesktop.230313mzl4w4u92", "com.exafunction.windsurf",
+            "dev.zed.zed", "com.apple.dt.xcode", "com.jetbrains.intellij",
+            "com.jetbrains.pycharm", "com.jetbrains.webstorm", "com.sublimetext.4",
+            "com.apple.terminal", "com.googlecode.iterm2", "dev.warp.warp-stable",
+            "com.mitchellh.ghostty", "org.alacritty", "com.github.wez.wezterm",
         ],
         "titles": [],
     },
@@ -124,6 +141,9 @@ APP_RULES: list[dict] = [
         "processes": [
             "winword.exe", "notion.exe", "obsidian.exe", "onenote.exe",
             "notepad.exe", "wordpad.exe",
+            "com.microsoft.word", "com.apple.iwork.pages", "notion.id", "md.obsidian",
+            "com.apple.notes", "com.apple.textedit", "net.shinyfrog.bear",
+            "com.microsoft.onenote.mac",
         ],
         "titles": ["google docs", "notion", "confluence"],
     },
@@ -136,7 +156,7 @@ APP_RULES: list[dict] = [
 # ---------------------------------------------------------------------------
 
 DEFAULTS: dict = {
-    "hotkey": "ctrl_win",
+    "hotkey": "right_option" if sys.platform == "darwin" else "ctrl_win",
     "language": "en",
     "stt_engine": "groq",
     "stt_models": {

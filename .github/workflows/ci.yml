@@ -1,0 +1,79 @@
+# Tests on Linux, Windows and macOS, plus a real install and smoke test of
+# the Mac app. Runs on every branch except main (main runs it through
+# release.yml, which then publishes a release if the version is new).
+name: CI
+
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: sudo apt-get update -q && sudo apt-get install -yq xvfb libportaudio2
+      - run: pip install -r requirements-dev.txt
+      - run: xvfb-run -a python -m pytest -q
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest -q
+
+  mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Unit tests
+        run: |
+          pip install -r requirements-plus-mac.txt pytest
+          python -m pytest -q
+      - name: Build Scribe Plus.app and the release tarball
+        run: |
+          macos/build-app.sh dist
+          mkdir -p stage
+          git archive --prefix=ScribePlus/ HEAD | tar -x -C stage
+          cp -R "dist/Scribe Plus.app" stage/ScribePlus/macos/
+          tar -czf ScribePlus-mac.tar.gz -C stage ScribePlus
+          ls -la ScribePlus-mac.tar.gz
+      - name: Install with the real installer (CI mode)
+        env:
+          SCRIBE_PLUS_CI: "1"
+          SCRIBE_PLUS_TARBALL: ${{ github.workspace }}/ScribePlus-mac.tar.gz
+          SCRIBE_PLUS_ROOT: ${{ runner.temp }}/scribe-plus
+          SCRIBE_PLUS_APPS: ${{ runner.temp }}/Applications
+        run: bash install-mac.sh --yes
+      - name: Smoke test through the app's own launcher
+        env:
+          SCRIBE_PLUS_ROOT: ${{ runner.temp }}/scribe-plus
+        run: |
+          "$RUNNER_TEMP/Applications/Scribe Plus.app/Contents/MacOS/Scribe Plus" --smoke-test "$RUNNER_TEMP/smoke"
+          codesign -dv "$RUNNER_TEMP/Applications/Scribe Plus.app" 2>&1 | grep -E "Identifier|Signature"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: mac-smoke
+          path: ${{ runner.temp }}/smoke
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mac-release
+          path: ScribePlus-mac.tar.gz

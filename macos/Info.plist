@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Kept identical from release to release on purpose: macOS remembers the
+  permissions you grant by the app's code signature, and this file is part
+  of it. The Python code lives outside the bundle, so updates never touch it.
+-->
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>us.feetham.scribeplus</string>
+    <key>CFBundleName</key>
+    <string>Scribe Plus</string>
+    <key>CFBundleDisplayName</key>
+    <string>Scribe Plus</string>
+    <key>CFBundleExecutable</key>
+    <string>Scribe Plus</string>
+    <key>CFBundleIconFile</key>
+    <string>ScribePlus</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>12.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Scribe Plus records your voice while you hold the hotkey, to turn it into text.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Scribe Plus opens Terminal when you run a benchmark.</string>
+</dict>
+</plist>

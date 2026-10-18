@@ -1,3 +1,8 @@
 # Batch files must have CRLF line endings or cmd.exe can misread them.
 *.bat text eol=crlf
 *.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Not part of the downloadable app
+.github export-ignore
+site export-ignore

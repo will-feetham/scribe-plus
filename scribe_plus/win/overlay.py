@@ -1,5 +1,6 @@
 """
-The floating status pill, drawn and animated with tkinter.
+The floating status pill on Windows: frames from scribe_plus.pill_model,
+drawn with tkinter.
 
 It must never take keyboard focus, or the paste would land in the pill
 instead of the user's app. On Windows the window gets WS_EX_NOACTIVATE,
@@ -11,21 +12,13 @@ All methods run on the Tk thread; other threads go through UiBridge.
 """
 from __future__ import annotations
 
-import collections
 import ctypes
-import math
 import sys
 import time
 import tkinter as tk
 
-BG = "#18181B"
-BORDER = "#3F3F46"
-FG = "#F4F4F5"
-DIM = "#A1A1AA"
-COMMAND = "#C4B5FD"
-HANDSFREE = "#F87171"
-OK = "#4ADE80"
-ERROR = "#FCA5A5"
+from scribe_plus.pill_model import PillAnimator
+
 KEY = "#010203"  # colour keyed out to transparent on Windows (rounded corners)
 
 WIN = sys.platform == "win32"
@@ -92,45 +85,21 @@ def _capsule(c: tk.Canvas, x1, y1, x2, y2, fill: str, outline: str) -> None:
 
 
 class Pill:
-    """Animated status pill.
+    """Tk window that shows PillAnimator frames, about 60 per second while visible."""
 
-    Motion, all eased so nothing snaps:
-      * appears by growing out of a dot and fading in
-      * width morphs smoothly between states (listening, thinking, done)
-      * level bars follow the microphone, with a gentle idle wave so the
-        pill never looks frozen while you pause between words
-      * thinking: three dots in a travelling wave
-      * done: the checkmark draws itself, then the pill shrinks away
-      * error: a short shake, then it fades out
-    """
-
-    HEIGHT = 34
-    BARS = 9
-    FRAME_MS = 16          # ~60 fps while visible
-    SHOW_ALPHA = 0.95
+    FRAME_MS = 16
 
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.s = max(1.0, root.winfo_fpixels("1i") / 96.0)
-        self.h = int(self.HEIGHT * self.s)
-        self.state = "hidden"
-        self.mode = "dictate"
-        self.message = ""
-        self.levels: collections.deque = collections.deque([0.0] * self.BARS, maxlen=self.BARS)
-        self._bars = [0.0] * self.BARS
-        self._w = float(self.h)
-        self._w_target = float(self.h)
-        self._alpha = 0.0
-        self._alpha_target = 0.0
-        self._closing = False
-        self._hide_at: float | None = None
-        self._t_state = time.monotonic()
-        self._last = time.monotonic()
+        self.anim = PillAnimator(self.s, measure=self._text_width)
+        self.h = self.anim.h
         self._running = False
+        self._last = time.monotonic()
         self._area = (0, 0, root.winfo_screenwidth(), root.winfo_screenheight())
         self._geom = None
         # Negative size = pixels, so text scales with the pill on any DPI.
-        self._font = ("Segoe UI" if WIN else "DejaVu Sans", -int(round(13 * self.s)))
+        self._font = ("Segoe UI" if WIN else "DejaVu Sans", -self.anim.font_px)
 
         self.win = tk.Toplevel(root)
         self.win.overrideredirect(True)
@@ -149,44 +118,22 @@ class Pill:
         self._hwnd = None
         self._apply_win32_styles()
 
+    @property
+    def state(self) -> str:
+        return self.anim.state
+
     # -- public, Tk thread only -------------------------------------------
 
     def set_state(self, state: str, **kw) -> None:
-        now = time.monotonic()
+        appearing = self.anim.set_state(state, time.monotonic(), **kw)
         if state == "level":
-            self.levels.append(float(kw.get("value", 0.0)))
             return
-        if state in ("idle", "hidden"):
-            self._begin_close()
-            return
-        appearing = self.state == "hidden" or self._closing
-        if state == "recording":
-            mode = kw.get("mode", "dictate")
-            if self.state != "recording" or mode != "handsfree":
-                self.levels.extend([0.0] * self.BARS)
-            self.state, self.mode, self._hide_at = "recording", mode, None
-        elif state == "processing":
-            self.state, self._hide_at = "processing", None
-        elif state == "done":
-            self.state, self._hide_at = "done", now + 0.75
-        elif state in ("error", "info"):
-            self.state, self.message = state, str(kw.get("message", ""))
-            self._hide_at = now + 2.4
-        elif state == "cancelled":
-            self.state, self.message, self._hide_at = "info", "Cancelled", now + 0.9
-        else:
-            return
-        self._t_state = now
-        self._closing = False
-        self._w_target = float(self._target_width())
-        self._alpha_target = self.SHOW_ALPHA
         if appearing:
-            if self._alpha < 0.05:
-                self._w = float(self.h)          # grow out of a dot
             self._area = self._work_area()
             self._apply_win32_styles()
             self._raise()
-        self._ensure_running()
+        if self.anim.visible:
+            self._ensure_running()
 
     # -- animation loop ------------------------------------------------------
 
@@ -196,41 +143,23 @@ class Pill:
             self._last = time.monotonic()
             self.root.after(self.FRAME_MS, self._loop)
 
-    def _begin_close(self) -> None:
-        if self.state == "hidden":
-            return
-        self._closing = True
-        self._hide_at = None
-        self._alpha_target = 0.0
-        self._w_target = float(self.h)
-        self._ensure_running()
-
     def _loop(self) -> None:
         now = time.monotonic()
-        dt = min(0.1, max(0.0, now - self._last))
-        self._last = now
-        if self._hide_at is not None and now >= self._hide_at:
-            self._begin_close()
-        ease_w = 1.0 - math.exp(-dt / 0.07)
-        ease_a = 1.0 - math.exp(-dt / (0.06 if self._closing else 0.045))
-        self._w += (self._w_target - self._w) * ease_w
-        self._alpha += (self._alpha_target - self._alpha) * ease_a
-        if self._closing and self._alpha < 0.02:
-            self._alpha = 0.0
+        dt, self._last = now - self._last, now
+        frame = self.anim.step(now, dt)
+        if frame is None:
             self._set_alpha(0.0)
-            self.state = "hidden"
-            self._closing = False
             self._running = False
             return
-        self._apply_geometry(now)
-        self._set_alpha(self._alpha)
+        self._apply_geometry(frame.width, frame.shake)
+        self._set_alpha(frame.alpha)
         try:
-            self._draw(now, dt)
+            self._draw(frame)
         except tk.TclError:
             pass
         self.root.after(self.FRAME_MS, self._loop)
 
-    # -- layout --------------------------------------------------------------
+    # -- drawing ---------------------------------------------------------------
 
     def _text_width(self, text: str) -> int:
         try:
@@ -239,120 +168,41 @@ class Pill:
             self.canvas.delete(item)
             return x2 - x1
         except Exception:
-            return int(7 * self.s * len(text))
+            return int(0.55 * self.anim.font_px * len(text))
 
-    def _label(self) -> str:
-        if self.state == "recording":
-            return {"command": "Command", "handsfree": "Hands-free"}.get(self.mode, "")
-        if self.state in ("error", "info"):
-            return self.message
-        return ""
+    def _draw(self, frame) -> None:
+        c = self.canvas
+        c.delete("all")
+        for item in frame.items:
+            kind = item[0]
+            if kind == "capsule":
+                _capsule(c, *item[1:5], fill=item[5], outline=item[6])
+            elif kind == "dot":
+                _k, cx, cy, r, fill = item
+                c.create_oval(cx - r, cy - r, cx + r, cy + r, fill=fill, outline="")
+            elif kind == "bar":
+                _k, x, y1, y2, width, colour = item
+                cap = width / 2  # round caps add this much at each end
+                c.create_line(x, y1 + cap, x, max(y1 + cap, y2 - cap), fill=colour,
+                              width=max(2, int(round(width))), capstyle="round")
+            elif kind == "polyline":
+                _k, pts, colour, width = item
+                c.create_line(*pts, fill=colour, width=max(2, int(width)),
+                              capstyle="round", joinstyle="round")
+            elif kind == "text":
+                _k, x, cy, text, colour, anchor = item
+                c.create_text(x, cy, text=text, font=self._font, fill=colour, anchor=anchor)
 
-    def _target_width(self) -> int:
-        s = self.s
-        pad = int(14 * s)
-        if self.state == "recording":
-            bars_w = int(self.BARS * 3 * s + (self.BARS - 1) * 3 * s)
-            label = self._label()
-            w = pad * 2 + bars_w + (self._text_width(label) + int(10 * s) if label else 0)
-            if self.mode == "handsfree":
-                w += int(14 * s)
-        elif self.state == "processing":
-            w = int(72 * s)
-        elif self.state == "done":
-            w = int(56 * s)
-        else:
-            w = pad * 2 + self._text_width(self._label())
-        return max(w, int(56 * s))
+    # -- window management ---------------------------------------------------
 
-    def _apply_geometry(self, now: float) -> None:
+    def _apply_geometry(self, w: int, shake: int) -> None:
         left, _top, right, bottom = self._area
-        w = max(self.h, int(round(self._w)))
-        shake = 0
-        if self.state == "error" and not self._closing:
-            t = now - self._t_state
-            if t < 0.4:
-                shake = int(6 * self.s * math.sin(t * 48.0) * (1.0 - t / 0.4))
         x = left + (right - left - w) // 2 + shake
         y = bottom - self.h - int(28 * self.s)
         geom = (w, x, y)
         if geom != self._geom:
             self._geom = geom
             self.win.geometry(f"{w}x{self.h}+{x}+{y}")
-
-    # -- drawing ---------------------------------------------------------------
-
-    def _draw(self, now: float, dt: float) -> None:
-        c, s, h = self.canvas, self.s, self.h
-        w = max(h, int(round(self._w)))
-        c.delete("all")
-        _capsule(c, 1, 1, w - 2, h - 2, fill=BG, outline=BORDER)
-        # Content appears once the pill is wide enough, and not while closing.
-        room = (self._w - h) / max(1.0, self._w_target - h) if self._w_target > h else 1.0
-        if self._closing or room < 0.6:
-            return
-        mid = h / 2
-        if self.state == "recording":
-            self._draw_recording(c, s, mid, now, dt)
-        elif self.state == "processing":
-            for i in range(3):
-                phase = (math.sin(now * 7.0 - i * 0.95) + 1) / 2
-                r = (2.2 + 1.8 * phase) * s
-                cx = w / 2 + (i - 1) * 12 * s
-                cy = mid - 2.5 * s * phase
-                shade = int(0x71 + (0xF4 - 0x71) * phase)
-                c.create_oval(cx - r, cy - r, cx + r, cy + r,
-                              fill=f"#{shade:02x}{shade:02x}{min(0xF5, shade + 1):02x}", outline="")
-        elif self.state == "done":
-            p = min(1.0, (now - self._t_state) / 0.24)
-            p = 1 - (1 - p) ** 3  # ease out
-            pts = [(w / 2 - 7 * s, mid), (w / 2 - 2 * s, mid + 5 * s), (w / 2 + 8 * s, mid - 6 * s)]
-            seg1 = math.dist(pts[0], pts[1])
-            seg2 = math.dist(pts[1], pts[2])
-            run = p * (seg1 + seg2)
-            line = [pts[0]]
-            if run <= seg1:
-                f = run / seg1
-                line.append((pts[0][0] + (pts[1][0] - pts[0][0]) * f, pts[0][1] + (pts[1][1] - pts[0][1]) * f))
-            else:
-                f = (run - seg1) / seg2
-                line += [pts[1], (pts[1][0] + (pts[2][0] - pts[1][0]) * f,
-                                  pts[1][1] + (pts[2][1] - pts[1][1]) * f)]
-            if len(line) >= 2:
-                flat = [v for pt in line for v in pt]
-                c.create_line(*flat, fill=OK, width=max(2, int(2.6 * s)),
-                              capstyle="round", joinstyle="round")
-        else:
-            colour = ERROR if self.state == "error" else FG
-            c.create_text(w / 2, mid, text=self._label(), font=self._font, fill=colour)
-
-    def _draw_recording(self, c: tk.Canvas, s: float, mid: float, now: float, dt: float) -> None:
-        x = int(14 * s)
-        if self.mode == "handsfree":
-            pulse = 0.5 + 0.5 * math.sin(now * 4.0)
-            r = (3.4 + 1.2 * pulse) * s
-            c.create_oval(x + 4 * s - r, mid - r, x + 4 * s + r, mid + r, fill=HANDSFREE, outline="")
-            x += int(14 * s)
-        label = self._label()
-        colour = COMMAND if self.mode == "command" else FG
-        if label:
-            c.create_text(x, mid, text=label, font=self._font, fill=colour, anchor="w")
-            x += self._text_width(label) + int(10 * s)
-        levels = list(self.levels)
-        n = self.BARS
-        ease = 1.0 - math.exp(-max(dt, 0.001) / 0.06)
-        for i in range(n):
-            raw = levels[-1 - abs(i - n // 2)] if levels else 0.0
-            idle_wave = 0.12 + 0.10 * math.sin(now * 5.0 - i * 0.8)   # alive while you pause
-            target = max(raw, idle_wave)
-            self._bars[i] += (target - self._bars[i]) * ease
-            bh = (4 + 16 * min(1.0, self._bars[i])) * s
-            bx = x + i * 6 * s + 1.5 * s
-            cap = 1.5 * s                       # round caps add this much at each end
-            c.create_line(bx, mid - bh / 2 + cap, bx, mid + bh / 2 - cap, fill=colour,
-                          width=max(2, int(round(3 * s))), capstyle="round")
-
-    # -- window management ---------------------------------------------------
 
     def _set_alpha(self, a: float) -> None:
         try:

@@ -1,0 +1,64 @@
+# On every push to main: run all the tests, and if the version in
+# scribe_plus/__init__.py has no release yet, build and publish one.
+# The download page always points at the newest release.
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      needed: ${{ steps.v.outputs.needed }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' scribe_plus/__init__.py)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if gh release view "v$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            echo "v$version is already released; tests only."
+          else
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+            echo "Will release v$version."
+          fi
+
+  tests:
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: [check, tests]
+    if: needs.check.outputs.needed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: mac-release
+      - name: Windows zip
+        run: git archive --format=zip --prefix=ScribePlus/ -o ScribePlus-Windows.zip HEAD
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          gh release create "v$VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Scribe Plus $VERSION" \
+            --generate-notes \
+            --notes "Install or update: https://scribeplus.feetham.us" \
+            ScribePlus-Windows.zip ScribePlus-mac.tar.gz install-mac.sh install-windows.ps1

@@ -1,9 +1,12 @@
 @echo off
-REM Scribe Plus setup for Windows. Safe to run again: it only adds what's missing.
+REM Scribe Plus setup for Windows. Also the updater: run a newer copy and it
+REM replaces the installed one, keeping your API keys, settings and history.
+REM   0. a downloaded copy installs itself to %LOCALAPPDATA%\Programs\Scribe Plus
+REM      (a git checkout, like a developer's, runs where it is)
 REM   1. finds Python 3.10-3.13 (offers to install 3.12 with winget)
 REM   2. creates venv\ and installs requirements-plus.txt
 REM   3. asks for your Groq API key (saved to .env, which git ignores)
-REM   4. optionally starts Scribe Plus when you sign in
+REM   4. Start menu entry, and optionally start Scribe Plus when you sign in
 REM   5. launches it
 setlocal EnableDelayedExpansion
 cd /d "%~dp0"
@@ -13,6 +16,20 @@ echo ============================================================
 echo   Scribe Plus setup
 echo ============================================================
 echo.
+
+REM --- 0. Install location ------------------------------------------------------
+set "TARGET=%LOCALAPPDATA%\Programs\Scribe Plus"
+if exist "%~dp0.git" goto :here
+if /i "%~dp0"=="%TARGET%\" goto :here
+echo Installing to %TARGET% ...
+powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -like 'python*' -and $_.CommandLine -like '*scribe_plus_windows.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"
+if not exist "%TARGET%" mkdir "%TARGET%"
+robocopy "%~dp0." "%TARGET%" /MIR /XD venv .git __pycache__ /XF .env /NFL /NDL /NJH /NJS /NP >nul
+if errorlevel 8 goto :fail
+if exist "%~dp0.env" if not exist "%TARGET%\.env" copy /y "%~dp0.env" "%TARGET%\.env" >nul
+endlocal & call "%LOCALAPPDATA%\Programs\Scribe Plus\Install Scribe Plus.bat"
+exit /b %errorlevel%
+:here
 
 REM --- 1. Python -------------------------------------------------------------
 set "PYEXE="
@@ -65,10 +82,18 @@ if "%NEED_KEY%"=="1" (
     )
 )
 
-REM --- 4. Start at sign-in? --------------------------------------------------------
+REM --- 4. Start menu, and start at sign-in? ---------------------------------------
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Programs') + '\Scribe Plus.lnk'); $s.TargetPath='%~dp0Scribe Plus.bat'; $s.WorkingDirectory='%~dp0'; $s.WindowStyle=7; $s.IconLocation='%~dp0assets\scribe-plus.ico'; $s.Description='Scribe Plus dictation'; $s.Save()"
+set "STARTUP_LNK=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Scribe Plus.lnk"
+if exist "%STARTUP_LNK%" goto :startup
 echo.
 choice /c YN /m "Start Scribe Plus automatically when you sign in to Windows"
 if errorlevel 2 goto :launch
+:startup
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Startup') + '\Scribe Plus.lnk'); $s.TargetPath='%~dp0Scribe Plus.bat'; $s.WorkingDirectory='%~dp0'; $s.WindowStyle=7; $s.IconLocation='%~dp0assets\scribe-plus.ico'; $s.Description='Scribe Plus dictation'; $s.Save()"
+echo Starts when you sign in. Delete "Scribe Plus" from your Startup folder to undo.
+
+:launch
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Startup') + '\Scribe Plus.lnk'); $s.TargetPath='%~dp0Scribe Plus.bat'; $s.WorkingDirectory='%~dp0'; $s.WindowStyle=7; $s.IconLocation='%~dp0assets\scribe-plus.ico'; $s.Description='Scribe Plus dictation'; $s.Save()"
 echo Added to your Startup folder. Delete "Scribe Plus" there to undo.
 

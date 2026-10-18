@@ -15,6 +15,7 @@ from __future__ import annotations
 import importlib.util
 import logging
 import os
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -22,6 +23,11 @@ from dataclasses import dataclass
 import httpx
 
 log = logging.getLogger(__name__)
+
+# How to add local Whisper on this OS (shown in messages).
+LOCAL_WHISPER_HINT = (
+    "run the Scribe Plus installer again with --local-whisper" if sys.platform == "darwin"
+    else "run 'Install local Whisper.bat'")
 
 GROQ_BASE = "https://api.groq.com/openai/v1"
 OPENAI_BASE = "https://api.openai.com/v1"
@@ -239,7 +245,7 @@ class _LocalWhisper:
             if m is None:
                 if not self.available():
                     raise EngineError("local Whisper is not installed "
-                                      "(run 'Install local Whisper.bat')")
+                                      f"({LOCAL_WHISPER_HINT})")
                 from faster_whisper import WhisperModel  # type: ignore
                 t0 = time.perf_counter()
                 m = WhisperModel(model, device="cpu", compute_type="int8",
@@ -395,7 +401,7 @@ def check_setup(settings, pool: HttpPool) -> list[tuple[bool, str]]:
     elif stt_engine == "local":
         ok = LOCAL_WHISPER.available()
         out.append((ok, "Local Whisper installed" if ok else
-                    "Local Whisper not installed: run 'Install local Whisper.bat'"))
+                    f"Local Whisper not installed: {LOCAL_WHISPER_HINT}"))
     if cleanup_engine in ("groq", "anthropic", "ollama"):
         wanted.setdefault(cleanup_engine, set()).update(
             {settings.cleanup_model(cleanup_engine), settings.command_model(cleanup_engine)})

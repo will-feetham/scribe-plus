@@ -128,8 +128,8 @@ def test_pill_renders_every_state():
                 pump(root, 0.06)
             # Width and fade are eased; wait for them to settle (bounded, so a
             # slow CI machine doesn't turn timing into a failure).
-            assert pump(root, 2.0, until=lambda: abs(pill._w - pill._w_target) < 3
-                        and pill._alpha > 0.8), f"{state}: pill never settled"
+            assert pump(root, 2.0, until=lambda: abs(pill.anim.w - pill.anim.w_target) < 3
+                        and pill.anim.alpha > 0.8), f"{state}: pill never settled"
             assert pill.state != "hidden"
             assert len(pill.canvas.find_all()) > 1, f"{state}: content not drawn"
             w, x, y = pill._geom
@@ -141,7 +141,7 @@ def test_pill_renders_every_state():
                     os.path.join(shots, f"pill-{i}-{state}-{kw.get('mode', '')}.png"))
         # Closing is animated: still visible right after, gone shortly after.
         pill.set_state("idle")
-        assert pill.state != "hidden" and pill._closing
+        assert pill.state != "hidden" and pill.anim.closing
         assert pump(root, 1.5, until=lambda: pill.state == "hidden")
         assert not pill._running, "animation loop should stop when hidden"
         # Reopening mid-close cancels the close.
@@ -150,8 +150,8 @@ def test_pill_renders_every_state():
         pill.set_state("idle")
         pump(root, 0.03)
         pill.set_state("processing")
-        assert pump(root, 2.0, until=lambda: pill._alpha > 0.8)
-        assert pill.state == "processing" and not pill._closing
+        assert pump(root, 2.0, until=lambda: pill.anim.alpha > 0.8)
+        assert pill.state == "processing" and not pill.anim.closing
         # Done and error hide themselves.
         pill.set_state("done")
         assert pump(root, 2.5, until=lambda: pill.state == "hidden")

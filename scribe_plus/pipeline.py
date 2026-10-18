@@ -39,7 +39,10 @@ class AppContext:
 
 
 class Platform:
-    """Interface the pipeline needs from the OS. See scribe_plus.win.platform."""
+    """Interface the pipeline needs from the OS. See scribe_plus.win.platform
+    and scribe_plus.mac.platform."""
+
+    paste_hint = "Ctrl+V"   # the paste shortcut, for "Copied: press ..." messages
 
     def capture_context(self) -> AppContext: return AppContext()
     def inject_mask(self) -> None: pass
@@ -405,7 +408,7 @@ class DictationEngine:
         else:
             # Keys still held: pasting now would fire Win+Ctrl+V and friends.
             self.platform.copy(final)
-            self.platform.ui("info", message="Copied: press Ctrl+V")
+            self.platform.ui("info", message=f"Copied: press {self.platform.paste_hint}")
         row["paste_ms"] = (time.monotonic() - t) * 1000.0
         row["final_text"] = final
         row["words_final"] = len(textproc.word_list(final))
