@@ -109,10 +109,25 @@ def pump(root, seconds, until=None):
     return bool(until and until())
 
 
+def with_tk_retry(make, attempts=3):
+    """Windows CI runners sometimes fail to start a second Tk interpreter in
+    one process ("Can't find a usable init.tcl ... couldn't read file ...
+    No error"), the same flake matplotlib sees on windows-latest. The app
+    itself only ever starts one, so retry here rather than fail the build."""
+    import tkinter as tk
+    for attempt in range(attempts):
+        try:
+            return make()
+        except tk.TclError as exc:
+            if "init.tcl" not in str(exc) or attempt == attempts - 1:
+                raise
+            time.sleep(1.0)
+
+
 def test_pill_renders_every_state():
     import tkinter as tk
     from scribe_plus.win.overlay import Pill
-    root = tk.Tk()
+    root = with_tk_retry(tk.Tk)
     root.withdraw()
     try:
         pill = Pill(root)
@@ -178,7 +193,7 @@ def test_app_wiring_end_to_end(monkeypatch, tmp_path):
     # The fake key presses aren't physically held on a real Windows machine.
     monkeypatch.setattr(keys, "physically_down", lambda vk: True)
 
-    app = scribe_plus_windows.App(debug=True)
+    app = with_tk_retry(lambda: scribe_plus_windows.App(debug=True))
     try:
         app.engine.pool = E.HttpPool(transport=httpx.MockTransport(Api()))
         app.hook._listener = FakeListener()
