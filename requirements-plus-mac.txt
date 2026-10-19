@@ -8,3 +8,4 @@ Pillow>=10
 pyobjc-framework-Cocoa>=10
 pyobjc-framework-Quartz>=10
 pyobjc-framework-ApplicationServices>=10
+pyobjc-framework-UserNotifications>=10

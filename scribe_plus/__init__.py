@@ -17,4 +17,4 @@ as they are, apart from one comment, so `git pull upstream main` merges
 Scribe's fixes cleanly.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"

@@ -83,19 +83,18 @@ if "%NEED_KEY%"=="1" (
 )
 
 REM --- 4. Start menu, and start at sign-in? ---------------------------------------
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Programs') + '\Scribe Plus.lnk'); $s.TargetPath='%~dp0Scribe Plus.bat'; $s.WorkingDirectory='%~dp0'; $s.WindowStyle=7; $s.IconLocation='%~dp0assets\scribe-plus.ico'; $s.Description='Scribe Plus dictation'; $s.Save()"
+REM The same code Scribe Plus runs each time it starts (scribe_plus\win\shell.py):
+REM a Start menu entry with its icon, and notifications that say "Scribe Plus".
 set "STARTUP_LNK=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Scribe Plus.lnk"
-if exist "%STARTUP_LNK%" goto :startup
+set "SHELL_ARGS="
+if exist "%STARTUP_LNK%" goto :shortcuts
 echo.
 choice /c YN /m "Start Scribe Plus automatically when you sign in to Windows"
-if errorlevel 2 goto :launch
-:startup
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Startup') + '\Scribe Plus.lnk'); $s.TargetPath='%~dp0Scribe Plus.bat'; $s.WorkingDirectory='%~dp0'; $s.WindowStyle=7; $s.IconLocation='%~dp0assets\scribe-plus.ico'; $s.Description='Scribe Plus dictation'; $s.Save()"
-echo Starts when you sign in. Delete "Scribe Plus" from your Startup folder to undo.
-
-:launch
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Startup') + '\Scribe Plus.lnk'); $s.TargetPath='%~dp0Scribe Plus.bat'; $s.WorkingDirectory='%~dp0'; $s.WindowStyle=7; $s.IconLocation='%~dp0assets\scribe-plus.ico'; $s.Description='Scribe Plus dictation'; $s.Save()"
-echo Added to your Startup folder. Delete "Scribe Plus" there to undo.
+if not errorlevel 2 set "SHELL_ARGS=--startup"
+:shortcuts
+"venv\Scripts\python.exe" -m scribe_plus.win.shell %SHELL_ARGS%
+if errorlevel 1 echo Couldn't add the Start menu entry now; Scribe Plus adds it itself when it starts.
+if exist "%STARTUP_LNK%" echo Starts when you sign in. Delete "Scribe Plus" from your Startup folder to undo.
 
 :launch
 echo.

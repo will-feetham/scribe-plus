@@ -66,8 +66,9 @@ irm https://scribeplus.feetham.us/install.ps1 | iex
 
 The installer finds Python 3.10 to 3.13 (and offers to install 3.12 if it's missing), installs
 Scribe Plus into `%LOCALAPPDATA%\Programs\Scribe Plus`, adds it to the Start menu, asks about
-starting at sign-in, and starts it. Look for the five-bar icon in the system tray (click `^` by the
-clock if it's hidden). Installing a newer copy updates the old one and keeps your keys and
+starting at sign-in, and starts it. Look for the five-bar icon in the system tray (click `^` by
+the clock if it's hidden). Search Start for "Scribe Plus" to open it again; the app puts that
+entry back by itself if it goes missing. Installing a newer copy updates the old one and keeps your keys and
 settings. A git checkout runs where it is instead, for development.
 
 ## What you can do
@@ -161,6 +162,14 @@ stay in the data folder above. There is no analytics or phone-home, same as Scri
 
 ## Troubleshooting
 
+**Both**
+
+- **"Access denied. Please check your network settings."** Groq refuses some VPN and hosting
+  addresses. Turn the VPN off, pick another server, or let Scribe Plus skip the VPN with your VPN's
+  split tunneling (Surfshark calls it Bypasser): add Scribe Plus.app on a Mac, or on Windows the
+  `pythonw.exe` Scribe Plus runs on (`venv\pyvenv.cfg` names its folder). OpenAI and Anthropic,
+  which you can pick in the menu, have accepted VPN addresses that Groq refused.
+
 **Mac**
 
 - **The hotkey does nothing.** Open the menu bar icon > Permissions, turn on Scribe Plus under
@@ -191,8 +200,10 @@ stay in the data folder above. There is no analytics or phone-home, same as Scri
   so select the text you want rewritten first.
 - **Clipboard.** As in Scribe on Windows, only text survives the paste round trip; an image you
   had copied is replaced by the dictated text. (On a Mac everything you had copied is put back.)
-- **Uninstall:** delete `%LOCALAPPDATA%\Programs\Scribe Plus`, the "Scribe Plus" shortcuts in
-  the Start menu and Startup folder, and `%APPDATA%\scribe\plus` if you want your settings gone.
+- **Uninstall:** quit Scribe Plus (it puts its Start menu entry back when it starts), then delete
+  `%LOCALAPPDATA%\Programs\Scribe Plus`, the "Scribe Plus" shortcuts in the Start menu and Startup
+  folder, the registry key `HKCU\Software\Classes\AppUserModelId\Feetham.ScribePlus` (its name
+  for notifications), and `%APPDATA%\scribe\plus` if you want your settings gone.
 
 ## How it's put together
 

@@ -6,3 +6,5 @@ pystray>=0.19.5
 Pillow>=10
 pynput>=1.7.7
 pyperclip>=1.8.2
+# Start menu entry with the app's ID, so notifications say "Scribe Plus"
+pywin32>=308; sys_platform == "win32"

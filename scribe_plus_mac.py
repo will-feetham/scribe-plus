@@ -82,10 +82,19 @@ class App(TrayApp):
     # -- OS hooks --------------------------------------------------------------
 
     def _init_ui(self) -> None:
+        from scribe_plus.mac.notify import Notifier
         from scribe_plus.mac.overlay import Pill
         from scribe_plus.mac.platform import MainBridge
+        self.notifier = Notifier()
         self.bridge = MainBridge()
         self.pill = Pill()
+
+    def notify(self, title: str, message: str) -> None:
+        """Sent as Scribe Plus (pystray's own notifications say Script Editor)."""
+        try:
+            self.notifier.post(title, message)
+        except Exception:
+            log.info("notify: %s: %s", title, message)
 
     def _make_tray_icon(self):
         from scribe_plus.mac.statusicon import MacIcon
@@ -273,6 +282,13 @@ def smoke_test(out_dir: str) -> int:
         report.append(f"pill {name}: png={ok} width={w:.0f} alpha={a:.2f}")
     app.icon.icon = app.make_icon("recording")
     report.append("status icon ok")
+    from scribe_plus.mac.notify import in_app_bundle
+    app.notify(APP_TITLE, "Smoke test")
+    for _ in range(30):  # macOS answers the permission request asynchronously
+        if app.notifier.status != "pending":
+            break
+        time.sleep(0.1)
+    report.append(f"notifications in_bundle={in_app_bundle()} status={app.notifier.status}")
     (out / "report.txt").write_text("\n".join(report) + "\n", encoding="utf-8")
     print("\n".join(report))
     ok = all(s[1] for s in shots)

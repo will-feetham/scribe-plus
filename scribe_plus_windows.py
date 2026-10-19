@@ -15,6 +15,7 @@ import logging
 import os
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 from scribe_plus import settings as S
@@ -162,8 +163,36 @@ class App(TrayApp):
         self.hook.start()
         self.icon.run_detached()
         self._warm_up()
+        threading.Thread(target=keep_start_menu_entry, name="start-menu", daemon=True).start()
         self.root.after(1500, self._first_run_checks)
         self.root.mainloop()
+
+
+def app_identity() -> None:
+    """Notifications say "Scribe Plus" instead of "Python". Must run before
+    the first window (tray icon, pill) is created."""
+    if sys.platform != "win32":
+        return
+    from scribe_plus.win import shell
+    try:
+        shell.register_identity()
+    except Exception as exc:
+        log.info("could not register the app identity: %s", exc)
+    shell.set_process_identity()
+
+
+def keep_start_menu_entry() -> None:
+    """Put back the Start menu entry if it's missing, or fix it if this copy
+    of Scribe Plus has moved."""
+    if sys.platform != "win32":
+        return
+    from scribe_plus.win import shell
+    try:
+        changed = shell.ensure_installed()
+        if changed:
+            log.info("shortcuts updated: %s", ", ".join(changed))
+    except Exception as exc:
+        log.warning("could not update the Start menu entry: %s", exc)
 
 
 def main() -> None:
@@ -177,6 +206,7 @@ def main() -> None:
                     "system tray (click ^ next to the clock if it's hidden).")
         return
     dpi_aware()
+    app_identity()
     try:
         app = App(args.debug)
     except Exception as exc:
