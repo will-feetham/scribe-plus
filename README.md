@@ -164,10 +164,13 @@ stay in the data folder above. There is no analytics or phone-home, same as Scri
 
 **Both**
 
-- **"Access denied. Please check your network settings."** Groq refuses some VPN and hosting
-  addresses. Turn the VPN off, pick another server, or let Scribe Plus skip the VPN with your VPN's
-  split tunneling (Surfshark calls it Bypasser): add Scribe Plus.app on a Mac, or on Windows the
-  `pythonw.exe` Scribe Plus runs on (`venv\pyvenv.cfg` names its folder). OpenAI and Anthropic,
+- **"Access denied. Please check your network settings." while on a VPN.** Groq refuses many VPN
+  and hosting addresses. The fix that works: in your VPN's split tunneling settings, exclude the
+  website **`api.groq.com`**, then reconnect the VPN. In Surfshark that's Settings > VPN settings >
+  Bypasser > Websites / IP addresses: turn on Bypass VPN and add `api.groq.com`. Only the requests
+  to Groq skip the VPN; everything else stays on it. Excluding the app instead doesn't work
+  reliably on Windows: Scribe Plus runs inside Python, and the program that actually talks to Groq
+  isn't the one in the Scribe Plus folder. Turning the VPN off also works, and OpenAI and Anthropic,
   which you can pick in the menu, have accepted VPN addresses that Groq refused.
 
 **Mac**
