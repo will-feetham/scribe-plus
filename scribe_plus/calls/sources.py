@@ -64,10 +64,16 @@ class PacketProcess:
             if not data:
                 break
             arrived = time.monotonic()
-            for rate, samples in reader.feed(data):
+            packets = reader.feed(data)
+            # Several packets can arrive in one read (this thread was busy for
+            # a moment). Each is stamped with when it would have arrived, so a
+            # burst is not mistaken for a gap in the audio.
+            behind = sum(len(samples) / rate for rate, samples in packets)
+            for rate, samples in packets:
+                behind -= len(samples) / rate
                 self.packets += 1
                 try:
-                    self._on_audio(samples, rate, arrived)
+                    self._on_audio(samples, rate, arrived - behind)
                 except Exception:
                     log.exception("%s: audio callback failed", self.name)
         code = proc.wait()

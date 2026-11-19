@@ -81,7 +81,7 @@ class CallManager:
         self._lock = threading.RLock()
         self._quit = threading.Event()
         self._seen: dict[str, str] = {}    # what each watched app was last doing (for the log)
-        self._warned_engine = 0.0
+        self._warned_engine = float("-inf")   # when the "can't transcribe" notice was last shown
 
     # -- settings ---------------------------------------------------------------
 
@@ -302,6 +302,10 @@ class CallManager:
                 log.warning("could not start recording %s: %s", label, exc)
                 transcript.notes.append(f"Recording {label} could not start ({str(exc)[:100]}).")
         if engine == "mlx":
+            if not engines.MLX_WHISPER.downloaded(model):
+                self._notify("Getting the speech model",
+                             "A one-time 1.5 GB download. This call's transcript appears when it "
+                             "is done.", always=True)
             engines.MLX_WHISPER.preload(model)
         with self._lock:
             self._call = call
