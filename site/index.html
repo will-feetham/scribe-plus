@@ -218,6 +218,9 @@ footer a { color: var(--muted); }
             <p class="step">Open Terminal, paste this line, and press Return.</p>
             <div class="cmd"><code id="cmd-mac">curl -fsSL https://scribeplus.feetham.us/install.sh | bash</code><button class="copy" data-copy="cmd-mac">Copy</button></div>
             <p class="step">It installs everything in your own account, no admin password. macOS then asks you to turn on Scribe Plus for Input Monitoring, Accessibility and the microphone. Needs macOS 12 or newer. Run the same line again to update.</p>
+            <p class="or">Want transcripts of your calls too? Use this line instead:</p>
+            <div class="cmd"><code id="cmd-mac-calls" style="white-space: normal; overflow-wrap: anywhere;">curl -fsSL https://scribeplus.feetham.us/install.sh | bash -s -- --calls</code><button class="copy" data-copy="cmd-mac-calls">Copy</button></div>
+            <p class="step">It adds a speech model that runs on your Mac (a 1.5 GB download, once). Call transcripts need macOS 14.2 or newer and work best on an Apple silicon Mac.</p>
           </div>
 
           <div class="panel" id="panel-win" role="tabpanel" aria-labelledby="tab-win" hidden>
@@ -247,11 +250,13 @@ footer a { color: var(--muted); }
       <h2 id="what-h">What it does</h2>
       <dl class="features">
         <div><dt>Writes what you meant</dt><dd>Drops fillers and false starts, and applies your corrections: "Tuesday, no wait, Wednesday" comes out as Wednesday. Spoken lists become lists.</dd></div>
-        <div><dt>Edits by voice</dt><dd>Select some text, hold <span class="k-command"></span>, and say "make this friendlier" or "turn this into bullets". With nothing selected, it writes what you ask for.</dd></div>
+        <div><dt>Edits by voice</dt><dd>Select some text, hold <span class="k-command"></span>, and say "make this friendlier" or "turn this into bullets". With nothing selected, your words are typed as usual.</dd></div>
         <div><dt>Fits the app you're in</dt><dd>Casual in Slack and Messages, full sentences in email, exact in code editors and terminals.</dd></div>
         <div><dt>Knows your words</dt><dd>Teach it names and jargon in a dictionary, and save snippets: say "insert my calendar link" and your link goes in.</dd></div>
         <div><dt>Hands-free when you want</dt><dd>Double-tap the hotkey to keep talking without holding anything; tap again to finish. Esc cancels.</dd></div>
         <div><dt>Shows you it's listening</dt><dd>A small pill above the Dock or taskbar follows your voice, then shows when the text is in.</dd></div>
+        <div><dt>Writes up your calls (Mac)</dt><dd>It notices a call in Zoom, Teams or your softphone and writes down both sides as you talk, marked Me and Them. When you hang up, the transcript is saved and already on your clipboard.</dd></div>
+        <div><dt>Keeps calls on your Mac</dt><dd>Call audio is turned into text on the Mac itself and not kept. The menu bar icon pulses red while a call is recorded. Tell the people on the call, as with any recording.</dd></div>
       </dl>
     </section>
 
@@ -262,7 +267,7 @@ footer a { color: var(--muted); }
       </div>
       <div>
         <h2>Where your words go</h2>
-        <p>Your audio goes to the speech service you pick (Groq by default), and the transcript to the cleanup model. Choose local Whisper and a local model and nothing leaves your computer. No account, no analytics.</p>
+        <p>Your audio goes to the speech service you pick (Groq by default), and the transcript to the cleanup model. Choose local Whisper and a local model and nothing leaves your computer. Call transcripts are made on your Mac, and call audio goes nowhere unless you pick a cloud engine for calls. No account, no analytics.</p>
         <p>Open source under the MIT license. <a href="https://github.com/will-feetham/scribe-plus">Read the code</a> or <a href="https://github.com/will-feetham/scribe-plus/issues">report a problem</a>.</p>
       </div>
     </section>
