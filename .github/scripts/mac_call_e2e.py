@@ -50,6 +50,14 @@ def finish(passed: bool) -> None:
 
 work = Path(tempfile.mkdtemp(prefix="call-e2e-"))
 caller = os.path.realpath(caller_python)
+# What macOS calls the caller's program. For a framework Python that is the
+# Python.app inside the framework, not the "python3" that was started.
+caller_program = subprocess.check_output([caller, "-c", """
+import ctypes, os
+buf = ctypes.create_string_buffer(4096)
+ctypes.CDLL("/usr/lib/libproc.dylib").proc_pidpath(os.getpid(), buf, 4096)
+print(buf.value.decode())
+"""], text=True).strip()
 
 # Which speech engine works here? MLX needs a GPU the runner may not expose.
 engine, model = "", ""
@@ -72,7 +80,9 @@ settings = SettingsStore(work / "settings.json")
 settings.set("calls_dir", str(work / "Calls"))
 settings.set("calls_engine", engine)
 settings.set_nested("calls_models", engine, model)
-settings.set("calls_apps", [{"name": "Test caller", "bundles": [], "paths": [caller], "enabled": True}])
+settings.set("calls_apps", [{"name": "Test caller", "bundles": [], "paths": [caller_program],
+                             "enabled": True}])
+result(f"caller program: {caller_program}")
 
 notes: list[tuple[str, str]] = []
 copied: list[str] = []
