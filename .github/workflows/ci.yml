@@ -23,7 +23,11 @@ jobs:
           python-version: "3.12"
       - run: sudo apt-get update -q && sudo apt-get install -yq xvfb libportaudio2
       - run: pip install -r requirements-dev.txt
-      - run: xvfb-run -a python -m pytest -q
+      - name: Tests
+        run: |
+          xvfb-run -a python -m pytest -q 2>&1 | tee pytest.log; code=${PIPESTATUS[0]}
+          [ "$code" -eq 0 ] || .github/scripts/annotate.sh "Linux tests failed" pytest.log
+          exit "$code"
 
   windows:
     runs-on: windows-latest
@@ -33,7 +37,12 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements-dev.txt
-      - run: python -m pytest -q
+      - name: Tests
+        shell: bash
+        run: |
+          python -m pytest -q 2>&1 | tee pytest.log; code=${PIPESTATUS[0]}
+          [ "$code" -eq 0 ] || .github/scripts/annotate.sh "Windows tests failed" pytest.log
+          exit "$code"
 
   mac:
     runs-on: macos-latest
@@ -45,7 +54,9 @@ jobs:
       - name: Unit tests
         run: |
           pip install -r requirements-plus-mac.txt pytest
-          python -m pytest -q
+          python -m pytest -q 2>&1 | tee pytest.log; code=${PIPESTATUS[0]}
+          [ "$code" -eq 0 ] || .github/scripts/annotate.sh "Mac tests failed" pytest.log
+          exit "$code"
       - name: Build Scribe Plus.app and the release tarball
         run: |
           macos/build-app.sh dist > build.log 2>&1 || { cat build.log; .github/scripts/annotate.sh "Mac build failed" build.log; exit 1; }
