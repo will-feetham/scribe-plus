@@ -111,6 +111,7 @@ jobs:
       - name: Smoke report in the run summary
         if: always()
         run: |
+          .github/scripts/annotate.sh "Mac smoke test" "$RUNNER_TEMP/smoke/report.txt" || true
           {
             echo "### Mac smoke test"
             echo '```'

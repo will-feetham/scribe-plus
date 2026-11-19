@@ -114,6 +114,8 @@ Scribe Plus can write down both sides of a phone or video call while it happens.
   Teams to begin with; Google Meet in Chrome and Slack huddles can be switched on) opens the
   microphone, a recording starts. When the app lets go, it ends. "Start recording now" in the
   Calls menu does the same by hand, for anything else.
+- **You can see it.** While a call is being recorded, the menu bar icon turns red and pulses.
+  It goes back to normal when the recording stops.
 - **Both sides, labelled.** "Me" is your microphone. "Them" is what the calling app plays, and
   only that app, so music or alerts from elsewhere stay out. Everyone on the other end is "Them".
 - **Live.** Speech is transcribed a sentence at a time during the call, so the transcript is

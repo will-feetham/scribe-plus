@@ -122,8 +122,12 @@ class App(TrayApp):
                             copy=self.platform.copy, pool=self.engine.pool,
                             dictionary=self.engine._dictionary.get,
                             mic_device=self.core.load_input_device)
-        calls.on_change = lambda: self.ui_call(self._rebuild)
+        calls.on_change = lambda: self.ui_call(self._calls_changed)
         return calls
+
+    def _set_call_pulse(self, on: bool) -> None:
+        from scribe_plus import icons
+        self.icon.set_pulse(icons.pulse_frames("call") if on else None, icons.PULSE_PERIOD_S)
 
     def _paste_groups(self) -> tuple:
         from scribe_plus.hotkeys import PASTE_LAST_MAC
@@ -301,6 +305,27 @@ def smoke_test(out_dir: str) -> int:
         report.append(f"pill {name}: png={ok} width={w:.0f} alpha={a:.2f}")
     app.icon.icon = app.make_icon("recording")
     report.append("status icon ok")
+    # The red pulse shown while a call is recorded: the pictures on the menu
+    # bar button must really change over time, and stop when told to.
+    import objc
+    from Foundation import NSDate, NSRunLoop
+    button = app.icon._status_item.button()
+
+    def showing() -> int:
+        return objc.pyobjc_id(button.image()) if button.image() is not None else 0
+
+    app._set_call_pulse(True)
+    seen = set()
+    for _ in range(16):
+        NSRunLoop.currentRunLoop().runUntilDate_(NSDate.dateWithTimeIntervalSinceNow_(0.1))
+        seen.add(showing())
+    app._set_call_pulse(False)
+    stopped_on = showing()
+    NSRunLoop.currentRunLoop().runUntilDate_(NSDate.dateWithTimeIntervalSinceNow_(0.4))
+    stays = showing() == stopped_on
+    pulse_ok = len(seen) >= 4 and stays and not app.icon.pulsing
+    report.append(f"status icon pulse ok={pulse_ok} different_pictures_in_1.6s={len(seen)} "
+                  f"stops_when_told={stays}")
     from scribe_plus.mac.notify import in_app_bundle
     app.notify(APP_TITLE, "Smoke test")
     for _ in range(30):  # macOS answers the permission request asynchronously
@@ -315,7 +340,7 @@ def smoke_test(out_dir: str) -> int:
     report.append(f"calls folder {app.calls.calls_dir()}")
     (out / "report.txt").write_text("\n".join(report) + "\n", encoding="utf-8")
     print("\n".join(report))
-    ok = all(s[1] for s in shots)
+    ok = all(s[1] for s in shots) and pulse_ok
     return 0 if ok else 1
 
 

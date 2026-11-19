@@ -9,9 +9,14 @@ actually gets.
 Idle bars are white on a dark taskbar and near-black on a light one; while
 recording, thinking or showing an error they take the state's colour, so
 the state reads at a glance even when the pill is off screen.
+
+While a call is being recorded the bars are red and pulse: they fade down
+and back about once every second and a half, for as long as the recording
+runs.
 """
 from __future__ import annotations
 
+import math
 import sys
 from functools import lru_cache
 
@@ -24,7 +29,11 @@ STATE_COLORS = {
     "processing": (37, 99, 235),  # blue
     "error": (217, 119, 6),       # amber
     "paused": (148, 163, 184),    # light slate
+    "call": (220, 38, 38),        # red: a call is being recorded
 }
+PULSE_PERIOD_S = 1.6   # one fade down and back
+PULSE_LOW = 0.25       # how faint the bars get, as a share of full strength
+PULSE_FRAMES = 20      # pictures per pulse (12.5 a second)
 LIGHT_INK = (245, 245, 247)
 DARK_INK = (24, 24, 27)
 TILE = (24, 24, 27)
@@ -94,4 +103,27 @@ def make_menubar_icon(state: str = "idle") -> Image.Image:
     if state in ("idle", "paused"):
         img.info["template"] = True
     return img
+
+
+def pulse_level(t: float, period: float = PULSE_PERIOD_S, low: float = PULSE_LOW) -> float:
+    """How strong the pulsing icon is `t` seconds into a pulse: 1.0 at the
+    start, easing down to `low` halfway through and back up."""
+    phase = (t % period) / period
+    return low + (1.0 - low) * (0.5 + 0.5 * math.cos(2.0 * math.pi * phase))
+
+
+@lru_cache(maxsize=64)
+def _faded(state: str, step: int, steps: int) -> Image.Image:
+    img = _draw(state, False).copy()
+    level = step / steps
+    img.putalpha(img.getchannel("A").point(lambda a: int(round(a * level))))
+    return img
+
+
+def pulse_frames(state: str = "call", frames: int = PULSE_FRAMES) -> list[Image.Image]:
+    """The pictures of one pulse, in order. Shown in a loop they make the
+    icon breathe; the first one is the icon at full strength."""
+    steps = 32      # distinct strengths (the fade down and the fade up share pictures)
+    return [_faded(state, max(1, round(pulse_level(i * PULSE_PERIOD_S / frames) * steps)), steps)
+            for i in range(frames)]
 

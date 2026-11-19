@@ -923,3 +923,73 @@ def test_the_engine_menu_lists_only_what_is_useful_on_this_computer():
     menu = call_engine_menu({"mlx": False, "local": True}, apple_silicon=True)
     assert [key for _label, key in menu] == ["auto", "mlx", "local", "groq", "openai"]
     assert menu[1][0].endswith("(not installed)") and "not installed" not in menu[2][0]
+
+
+# -- the icon while a call is recorded ------------------------------------------------------
+
+
+def test_the_call_icon_is_red_and_its_pulse_is_smooth():
+    from scribe_plus import icons
+    call = icons.make_icon("call", dark=True)
+    assert call.getpixel((128, 128)) == (220, 38, 38, 255)
+    assert call.tobytes() != icons.make_icon("recording", dark=True).tobytes()     # not the dictation red
+    assert icons.make_menubar_icon("call").info.get("template") is None            # keeps its colour on a Mac
+    # The pulse: full strength, easing down to a quarter, and back, with no jumps.
+    assert icons.pulse_level(0.0) == 1.0
+    assert abs(icons.pulse_level(icons.PULSE_PERIOD_S / 2) - icons.PULSE_LOW) < 1e-9
+    assert abs(icons.pulse_level(icons.PULSE_PERIOD_S * 3.25) - icons.pulse_level(icons.PULSE_PERIOD_S * 0.25)) < 1e-9
+    frames = icons.pulse_frames()
+    assert len(frames) == icons.PULSE_FRAMES
+    strength = [f.getpixel((128, 128))[3] for f in frames]
+    assert strength[0] == 255 and min(strength) == strength[len(frames) // 2] and 55 <= min(strength) <= 72
+    assert max(abs(b - a) for a, b in zip(strength, strength[1:] + strength[:1])) < 40     # no visible steps
+    assert all(f.getpixel((128, 128))[:3] == (220, 38, 38) for f in frames)                # red all the way
+    assert all(f.size == (256, 256) for f in frames)
+
+
+def test_the_icon_pulses_for_exactly_as_long_as_a_call_is_recorded():
+    from types import SimpleNamespace
+
+    from scribe_plus import tray
+
+    class App:
+        _ui_state, _call_shown = "idle", False
+        _icon_state = tray.TrayApp._icon_state
+        _tray_state = tray.TrayApp._tray_state
+        _calls_changed = tray.TrayApp._calls_changed
+
+        def __init__(self):
+            self.engine = SimpleNamespace(paused=False)
+            self.calls = SimpleNamespace(recording=False)
+            self.icon = SimpleNamespace(icon=None)
+            self.pulses, self.rebuilt = [], 0
+
+        def make_icon(self, state):
+            return state
+
+        def _rebuild(self):
+            self.rebuilt += 1
+
+        def _set_call_pulse(self, on):
+            self.pulses.append(on)
+
+    app = App()
+    app._tray_state("recording")                         # dictating: the usual colours
+    assert app.icon.icon == "recording"
+    app._tray_state("idle")
+    app.calls.recording = True                           # a call starts
+    app._calls_changed()
+    assert app.icon.icon == "call" and app.pulses == [True] and app.rebuilt == 1
+    app._tray_state("processing")                        # dictating during the call: still the call icon
+    assert app.icon.icon == "call"
+    app._calls_changed()                                 # (a menu refresh mid-call changes nothing)
+    assert app.pulses == [True]
+    app.calls.recording = False                          # the call ends
+    app._calls_changed()
+    assert app.icon.icon == "processing" and app.pulses == [True, False]
+    app.engine.paused = True
+    app._tray_state("idle")
+    assert app.icon.icon == "paused"
+    app.calls.recording = True                           # recorded even while dictation is paused
+    app._calls_changed()
+    assert app.icon.icon == "call" and app.pulses == [True, False, True]

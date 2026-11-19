@@ -221,13 +221,42 @@ class TrayApp:
         except Exception:
             log.info("notify: %s: %s", title, message)
 
+    _ui_state = "idle"      # what the dictation side last asked the icon to show
+    _call_shown = False     # whether the icon is showing a call being recorded
+
+    def _icon_state(self, state: str) -> str:
+        """Which icon to show. A call being recorded comes first: it is the one
+        thing that has to be visible at a glance for as long as it lasts."""
+        calls = getattr(self, "calls", None)
+        if calls is not None and calls.recording:
+            return "call"
+        if self.engine.paused:
+            return "paused"
+        return {"recording": "recording", "processing": "processing", "error": "error"}.get(state, "idle")
+
     def _tray_state(self, state: str) -> None:
-        mapping = {"recording": "recording", "processing": "processing", "error": "error"}
-        icon_state = "paused" if self.engine.paused else mapping.get(state, "idle")
+        self._ui_state = state
         try:
-            self.icon.icon = self.make_icon(icon_state)
+            self.icon.icon = self.make_icon(self._icon_state(state))
         except Exception:
             pass
+
+    def _calls_changed(self) -> None:
+        """A call recording started or stopped (runs on the UI thread)."""
+        self._rebuild()
+        calls = getattr(self, "calls", None)
+        recording = calls is not None and calls.recording
+        self._tray_state(self._ui_state)
+        if recording != self._call_shown:
+            self._call_shown = recording
+            try:
+                self._set_call_pulse(recording)
+            except Exception:
+                log.exception("could not change the call indicator")
+
+    def _set_call_pulse(self, on: bool) -> None:
+        """Make the icon pulse while a call is recorded, where the OS's tray
+        can do it. Without this the icon is simply red for the whole call."""
 
     def _rebuild(self) -> None:
         try:
