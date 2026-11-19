@@ -123,6 +123,7 @@ class App(TrayApp):
                             dictionary=self.engine._dictionary.get,
                             mic_device=self.core.load_input_device)
         calls.on_change = lambda: self.ui_call(self._calls_changed)
+        calls.on_ready = lambda: self.ui_call(self._call_ready)
         return calls
 
     def _set_call_pulse(self, on: bool) -> None:

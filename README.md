@@ -26,7 +26,7 @@ cursor is, in any app.
 | Personal dictionary and voice snippets | | ✓ |
 | Tone that fits the app you're in (Slack, Gmail, VS Code...) | | ✓ |
 | Hands-free mode (double-tap, no holding) | | ✓ |
-| Call transcripts: both sides of a call, labelled, ready when you hang up (Mac, test build) | | ✓ |
+| Call transcripts: both sides of a call, labelled, ready when you hang up (Mac) | | ✓ |
 | Animated status pill above the Dock or taskbar | | ✓ |
 | Latency and cost log, plus a benchmark across engines | | ✓ |
 | Read-aloud (text-to-speech) | ✓ | |
@@ -50,11 +50,13 @@ It installs everything inside your own account (no admin password): a private Py
 starts it. macOS asks you to turn on Scribe Plus under **Input Monitoring** (to see the hotkey),
 **Accessibility** (to paste) and **Microphone**; Scribe Plus restarts itself once they're on. Run
 the same line again to update. Add `--local-whisper` (`... | bash -s -- --local-whisper`) for
-offline speech-to-text.
+offline speech-to-text, or `--calls` to set up [call transcripts](#call-transcripts-mac). Both are
+remembered, so later updates keep them.
 
 Nothing is downloaded through a web browser, so macOS doesn't block it as an app from an
-unidentified developer. The app bundle never changes between releases (the code lives next to it),
-so the permissions you grant stay granted after updates.
+unidentified developer. The app bundle almost never changes between releases (the code lives next
+to it), so the permissions you grant stay granted after updates. Version 1.1 changed it once, for
+call transcripts: updating from 1.0, macOS asks for the permissions one more time.
 
 ## Install on Windows (10 or 11)
 
@@ -106,7 +108,7 @@ phrase and the saved text goes in instead.
 Both files, `settings.json` and the logs live in `%APPDATA%\scribe\plus` on Windows and
 `~/.config/scribe/plus` on a Mac. The menu opens each of them.
 
-## Call transcripts (Mac, test build)
+## Call transcripts (Mac)
 
 Scribe Plus can write down both sides of a phone or video call while it happens.
 
@@ -115,7 +117,8 @@ Scribe Plus can write down both sides of a phone or video call while it happens.
   microphone, a recording starts. When the app lets go, it ends. "Start recording now" in the
   Calls menu does the same by hand, for anything else.
 - **You can see it.** While a call is being recorded, the menu bar icon turns red and pulses.
-  It goes back to normal when the recording stops.
+  When the call ends it shows a green check mark for a few seconds as soon as the transcript is
+  saved and copied, then goes back to normal.
 - **Both sides, labelled.** "Me" is your microphone. "Them" is what the calling app plays, and
   only that app, so music or alerts from elsewhere stay out. Everyone on the other end is "Them".
 - **Live.** Speech is transcribed a sentence at a time during the call, so the transcript is
@@ -283,7 +286,7 @@ a real install and smoke test of the Mac app on GitHub's Mac machines. If the ve
 `scribe_plus/__init__.py` hasn't been released yet, GitHub then builds the Windows zip and the
 Mac package and publishes the release. The download page always points at the newest one.
 
-**Test builds** come from the `beta` branch. A version like `1.1.0b1` there is published as a
+**Test builds** come from the `beta` branch. A version like `1.2.0b1` there is published as a
 GitHub pre-release with its own install line; the download page and the normal install line keep
 pointing at the last full release until the version lands on `main`. A test build's install line
 always installs that exact build; the install line on the download page goes back to the release.

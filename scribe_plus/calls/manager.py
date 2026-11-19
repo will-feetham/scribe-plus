@@ -83,6 +83,7 @@ class CallManager:
         self._mic_factory = mic_factory or sources.mic_source
         self.app_dir = Path(app_dir or S.APP_DIR)
         self.on_change: Callable[[], None] | None = None
+        self.on_ready: Callable[[], None] | None = None   # a finished transcript was saved
         self.last_path: Path | None = None
         self.last_text = ""
         self.detector = CallDetector(self._apps(), start_delay=self._num("calls_start_delay_s", 0.6),
@@ -96,6 +97,7 @@ class CallManager:
         self._last_ended: _Call | None = None
         self._wrapping: list[threading.Thread] = []   # transcripts still being finished
         self._wrap_count = 0                          # ... and how many (counted before each starts)
+        self._late = 0                                # ... and how many are still with the speech model
         self._awake = 0
         self._lock = threading.RLock()
         self._quit = threading.Event()
@@ -286,6 +288,11 @@ class CallManager:
         with self._lock:
             return self._call is None and not self._busy and not self._want_manual \
                 and self._wrap_count == 0
+
+    @property
+    def finishing(self) -> bool:
+        """A call has ended and its transcript is still being finished."""
+        return self._wrap_count > 0 or self._late > 0
 
     def status(self) -> dict:
         call = self._call
@@ -552,16 +559,21 @@ class CallManager:
                 last = self._awake == 0
             if last:
                 self._platform_hook("call_ended")
-            self._changed()
             with self._lock:
-                self._wrap_count -= 1       # last: "idle" means all of the above is done
+                self._wrap_count -= 1       # "idle" means all of the above is done
+            self._changed()
 
     def _finish_call(self, call: _Call, reason: str, t_end: float) -> None:
         rec, tr = call.recorder, call.recorder.transcript
         if call.detected and self.settings.get("calls_window_titles"):
             self._add_titles(call)
-        rec.on_done = lambda: self._hand_over(call, [], late=True)
+        with self._lock:
+            self._late += 1
+        rec.on_done = lambda: self._late_done(call)
         caught_up = rec.finish(timeout=12.0)
+        if caught_up:
+            with self._lock:
+                self._late -= 1
         me, them = rec.channels["Me"], rec.channels["Them"]
         hints: list[str] = []          # (a side that was given up on is already explained)
         if "Them" in call.gave_up:
@@ -587,6 +599,15 @@ class CallManager:
                  call.ready_s, rec.summary(), "" if caught_up else "; speech model still catching up")
         if rec.lines_added or caught_up:
             self._hand_over(call, hints, late=False, caught_up=caught_up)
+
+    def _late_done(self, call: _Call) -> None:
+        """The speech model has caught up on a call that ended a while ago."""
+        try:
+            self._hand_over(call, [], late=True)
+        finally:
+            with self._lock:
+                self._late -= 1
+            self._changed()
 
     def _hand_over(self, call: _Call, hints: list[str], *, late: bool, caught_up: bool = True) -> None:
         """The finished (or, when the speech model is behind, so-far) transcript:
@@ -614,6 +635,11 @@ class CallManager:
                 copied = True
             except Exception as exc:
                 log.warning("could not copy the call transcript: %s", exc)
+        if newest and not rec.write_error and (late or caught_up) and self.on_ready:
+            try:
+                self.on_ready()          # the whole transcript is saved: the icon shows a check
+            except Exception:
+                log.exception("ready signal failed")
         count = "1 line" if lines == 1 else f"{lines} lines"
         also = " and copied" if copied else ""
         if rec.write_error:

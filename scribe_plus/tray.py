@@ -12,6 +12,7 @@ import logging
 import platform as host
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -223,13 +224,19 @@ class TrayApp:
 
     _ui_state = "idle"      # what the dictation side last asked the icon to show
     _call_shown = False     # whether the icon is showing a call being recorded
+    _ready_until = 0.0      # show the "transcript ready" check until then
 
     def _icon_state(self, state: str) -> str:
-        """Which icon to show. A call being recorded comes first: it is the one
-        thing that has to be visible at a glance for as long as it lasts."""
+        """Which icon to show. A call comes first: red and pulsing while it is
+        recorded, the "working" colour while its transcript is finished, and
+        a green check for a few seconds once the transcript is saved."""
         calls = getattr(self, "calls", None)
         if calls is not None and calls.recording:
             return "call"
+        if calls is not None and calls.finishing:
+            return "processing"
+        if time.monotonic() < self._ready_until:
+            return "ready"
         if self.engine.paused:
             return "paused"
         return {"recording": "recording", "processing": "processing", "error": "error"}.get(state, "idle")
@@ -253,6 +260,21 @@ class TrayApp:
                 self._set_call_pulse(recording)
             except Exception:
                 log.exception("could not change the call indicator")
+
+    def _call_ready(self) -> None:
+        """A call's transcript is finished and saved (runs on the UI thread):
+        the icon shows a green check for a few seconds."""
+        try:
+            seconds = float(self.settings.get("calls_ready_mark_s") or 0)
+        except (TypeError, ValueError):
+            seconds = 0.0
+        if seconds <= 0:
+            return
+        self._ready_until = time.monotonic() + seconds
+        self._tray_state(self._ui_state)
+        timer = threading.Timer(seconds + 0.05, lambda: self.ui_call(self._tray_state, self._ui_state))
+        timer.daemon = True
+        timer.start()
 
     def _set_call_pulse(self, on: bool) -> None:
         """Make the icon pulse while a call is recorded, where the OS's tray

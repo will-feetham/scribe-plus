@@ -12,7 +12,8 @@ the state reads at a glance even when the pill is off screen.
 
 While a call is being recorded the bars are red and pulse: they fade down
 and back about once every second and a half, for as long as the recording
-runs.
+runs. When the call's transcript is saved, the icon is a green check mark
+for a few seconds.
 """
 from __future__ import annotations
 
@@ -30,6 +31,7 @@ STATE_COLORS = {
     "error": (217, 119, 6),       # amber
     "paused": (148, 163, 184),    # light slate
     "call": (220, 38, 38),        # red: a call is being recorded
+    "ready": (22, 163, 74),       # green: a call's transcript is ready
 }
 PULSE_PERIOD_S = 1.6   # one fade down and back
 PULSE_LOW = 0.25       # how faint the bars get, as a share of full strength
@@ -67,8 +69,19 @@ def _bars(d: ImageDraw.ImageDraw, colour, box: tuple[float, float, float, float]
         x += bw + gap
 
 
+def _check(d: ImageDraw.ImageDraw, colour) -> None:
+    """A filled disc with a white check mark: "done"."""
+    d.ellipse((30, 30, 226, 226), fill=colour)
+    pts = [(86, 132), (116, 162), (172, 98)]
+    width = 26
+    d.line(pts, fill=(255, 255, 255, 255), width=width, joint="curve")
+    for x, y in pts:        # round ends and a round corner
+        d.ellipse((x - width / 2, y - width / 2, x + width / 2, y + width / 2), fill=(255, 255, 255, 255))
+
+
 def make_icon(state: str = "idle", dark: bool | None = None) -> Image.Image:
-    """Tray icon for a state: idle, recording, processing, error or paused."""
+    """Tray icon for a state: idle, recording, processing, error, paused,
+    call (a call is being recorded) or ready (its transcript is saved)."""
     return _draw(state, taskbar_is_dark() if dark is None else dark)
 
 
@@ -76,7 +89,10 @@ def make_icon(state: str = "idle", dark: bool | None = None) -> Image.Image:
 def _draw(state: str, dark: bool) -> Image.Image:
     img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     ink = STATE_COLORS.get(state) or (LIGHT_INK if dark else DARK_INK)
-    _bars(ImageDraw.Draw(img), ink + (255,), (14, 16, 242, 240), flat=state == "paused")
+    if state == "ready":
+        _check(ImageDraw.Draw(img), ink + (255,))
+    else:
+        _bars(ImageDraw.Draw(img), ink + (255,), (14, 16, 242, 240), flat=state == "paused")
     return img
 
 

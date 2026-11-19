@@ -675,6 +675,8 @@ def test_a_detected_call_is_recorded_saved_and_copied(tmp_path, monkeypatch):
     replies = iter(["Hey Will, the panel is installed.", "Hi, it's Will from ButterflyMX."])
     mgr, st, platform, notes, copied, mics, requests = make_manager(
         tmp_path, monkeypatch, them=them, me=me, stt=lambda n: next(replies))
+    ready = []
+    mgr.on_ready = lambda: ready.append((mgr.finishing, len(copied)))
     mgr._on_procs([DIALER])
     mgr._tick(time.monotonic())
     assert wait_for(lambda: mgr.recording)
@@ -686,6 +688,7 @@ def test_a_detected_call_is_recorded_saved_and_copied(tmp_path, monkeypatch):
     mgr._tick(time.monotonic())
     assert wait_for(lambda: mgr.idle and copied)
     assert tap.stopped and mics[0].stopped and platform.awake == ["start", "end"]
+    assert ready == [(True, 1)] and not mgr.finishing     # signalled once, after the copy, while still wrapping up
     text = (tmp_path / "Calls" / "latest.md").read_text(encoding="utf-8")
     assert copied == [text]
     assert "# Call: Groove OmniDialer" in text and "Status: ended" in text
@@ -757,9 +760,11 @@ def test_a_momentary_mic_use_ends_quietly(tmp_path, monkeypatch):
     assert wait_for(lambda: mgr.recording)
     mgr._on_procs([])
     mgr._tick(time.monotonic())
+    ready = []
+    mgr.on_ready = lambda: ready.append(True)
     assert wait_for(lambda: mgr.idle)
     assert [t for t, _m in notes] == ["Recording a call"] and copied == []
-    assert not (tmp_path / "Calls").exists()
+    assert not (tmp_path / "Calls").exists() and ready == []     # nothing said: no check mark either
 
 
 def test_detection_can_be_turned_off_and_silence_is_explained(tmp_path, monkeypatch):
@@ -862,6 +867,8 @@ def test_quitting_mid_call_closes_the_transcript(tmp_path, monkeypatch):
 def test_a_transcript_that_cannot_be_saved_is_said_so_and_still_copied(tmp_path, monkeypatch):
     me = np.concatenate([quiet(0.3), speech(1.5), quiet(3.0)])
     mgr, st, platform, notes, copied, mics, _req = make_manager(tmp_path, monkeypatch, me=me)
+    ready = []
+    mgr.on_ready = lambda: ready.append(True)
     (tmp_path / "blocked").write_text("a file where the folder should be")
     st.set("calls_dir", str(tmp_path / "blocked" / "Calls"))
     ring(mgr, [DIALER])
@@ -869,6 +876,7 @@ def test_a_transcript_that_cannot_be_saved_is_said_so_and_still_copied(tmp_path,
     ring(mgr, [])
     assert wait_for(lambda: mgr.idle)
     assert notes[-1][0] == "Call transcript not saved" and "copied to the clipboard" in notes[-1][1]
+    assert ready == []                                   # no check mark for a transcript that was not saved
     assert len(copied) == 1 and "Me: Hello there." in copied[0] and mgr.last_file() is None
 
 
@@ -945,6 +953,10 @@ def test_the_call_icon_is_red_and_its_pulse_is_smooth():
     assert max(abs(b - a) for a, b in zip(strength, strength[1:] + strength[:1])) < 40     # no visible steps
     assert all(f.getpixel((128, 128))[:3] == (220, 38, 38) for f in frames)                # red all the way
     assert all(f.size == (256, 256) for f in frames)
+    # Transcript ready: a green disc with a white check, the same on a Mac and on Windows.
+    done = icons.make_icon("ready", dark=True)
+    assert done.getpixel((128, 60)) == (22, 163, 74, 255) and done.getpixel((116, 162)) == (255, 255, 255, 255)
+    assert done.getpixel((4, 4))[3] == 0 and icons.make_menubar_icon("ready").info.get("template") is None
 
 
 def test_the_icon_pulses_for_exactly_as_long_as_a_call_is_recorded():
@@ -953,16 +965,21 @@ def test_the_icon_pulses_for_exactly_as_long_as_a_call_is_recorded():
     from scribe_plus import tray
 
     class App:
-        _ui_state, _call_shown = "idle", False
+        _ui_state, _call_shown, _ready_until = "idle", False, 0.0
         _icon_state = tray.TrayApp._icon_state
         _tray_state = tray.TrayApp._tray_state
         _calls_changed = tray.TrayApp._calls_changed
+        _call_ready = tray.TrayApp._call_ready
 
         def __init__(self):
             self.engine = SimpleNamespace(paused=False)
-            self.calls = SimpleNamespace(recording=False)
+            self.calls = SimpleNamespace(recording=False, finishing=False)
             self.icon = SimpleNamespace(icon=None)
+            self.settings = {"calls_ready_mark_s": 0.25}
             self.pulses, self.rebuilt = [], 0
+
+        def ui_call(self, fn, *args):
+            fn(*args)
 
         def make_icon(self, state):
             return state
@@ -984,9 +1001,21 @@ def test_the_icon_pulses_for_exactly_as_long_as_a_call_is_recorded():
     assert app.icon.icon == "call"
     app._calls_changed()                                 # (a menu refresh mid-call changes nothing)
     assert app.pulses == [True]
-    app.calls.recording = False                          # the call ends
+    app.calls.recording, app.calls.finishing = False, True      # the call ends; its transcript is finished off
+    app._tray_state("idle")
     app._calls_changed()
     assert app.icon.icon == "processing" and app.pulses == [True, False]
+    app.calls.finishing = False                          # the transcript is saved: a green check ...
+    app._call_ready()
+    app._calls_changed()
+    assert app.icon.icon == "ready"
+    app._tray_state("recording")                         # (it stays through a dictation)
+    assert app.icon.icon == "ready"
+    app._tray_state("idle")
+    assert wait_for(lambda: app.icon.icon == "idle", 2.0)        # ... for a few seconds, then back to normal
+    app.settings["calls_ready_mark_s"] = 0               # and it can be switched off
+    app._call_ready()
+    assert app.icon.icon == "idle"
     app.engine.paused = True
     app._tray_state("idle")
     assert app.icon.icon == "paused"
