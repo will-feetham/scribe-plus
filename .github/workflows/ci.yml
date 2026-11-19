@@ -56,7 +56,8 @@ jobs:
           cp dist/audiotap stage/ScribePlus/macos/audiotap
           tar -czf ScribePlus-mac.tar.gz -C stage ScribePlus
           ls -la ScribePlus-mac.tar.gz
-      - name: Call-recording helper on this runner (information only)
+      - name: Call-recording helper (records a test tone, notices microphone use)
+        continue-on-error: true
         run: .github/scripts/mac_audio_probe.sh dist/audiotap
 
       - name: Install with the real installer (CI mode)
