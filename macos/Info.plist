@@ -4,6 +4,8 @@
   Kept identical from release to release on purpose: macOS remembers the
   permissions you grant by the app's code signature, and this file is part
   of it. The Python code lives outside the bundle, so updates never touch it.
+  (Changed once, in 1.1, to add NSAudioCaptureUsageDescription for call
+  transcripts. The installer clears the old grants so macOS asks again.)
 -->
 <plist version="1.0">
 <dict>
@@ -31,6 +33,8 @@
     <true/>
     <key>NSMicrophoneUsageDescription</key>
     <string>Scribe Plus records your voice while you hold the hotkey, to turn it into text.</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>Scribe Plus listens to the other side of your calls, to write the call transcript.</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>Scribe Plus opens Terminal when you run a benchmark.</string>
 </dict>

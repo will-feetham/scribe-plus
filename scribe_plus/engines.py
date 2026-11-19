@@ -2,7 +2,8 @@
 Speech-to-text and cleanup-model providers.
 
   Speech:  groq (Whisper Large v3 / Turbo), openai (gpt-4o-mini-transcribe
-           and friends), local (faster-whisper on the CPU, optional install)
+           and friends), local (faster-whisper on the CPU, optional install),
+           mlx (Whisper on an Apple silicon Mac's GPU, optional install)
   Cleanup: groq (gpt-oss), anthropic (Claude Haiku), ollama (any
            OpenAI-compatible local server)
 
@@ -15,6 +16,7 @@ from __future__ import annotations
 import importlib.util
 import logging
 import os
+import platform
 import sys
 import threading
 import time
@@ -28,6 +30,8 @@ log = logging.getLogger(__name__)
 LOCAL_WHISPER_HINT = (
     "run the Scribe Plus installer again with --local-whisper" if sys.platform == "darwin"
     else "run 'Install local Whisper.bat'")
+MLX_HINT = "run the Scribe Plus installer again with --calls"
+MLX_DEFAULT_MODEL = "mlx-community/whisper-large-v3-turbo"
 
 GROQ_BASE = "https://api.groq.com/openai/v1"
 OPENAI_BASE = "https://api.openai.com/v1"
@@ -51,7 +55,8 @@ LLM_PRICES_PER_MTOK = {
     "claude-haiku-5-5": (0.10, 0.50),
 }
 
-STT_ENGINES = ("groq", "openai", "local")
+STT_ENGINES = ("groq", "openai", "local", "mlx")
+ON_DEVICE_ENGINES = ("local", "mlx")
 CLEANUP_ENGINES = ("groq", "anthropic", "ollama", "off")
 KEY_ENV = {"groq": "GROQ_API_KEY", "openai": "OPENAI_API_KEY",
            "anthropic": "ANTHROPIC_API_KEY"}
@@ -200,6 +205,13 @@ def transcribe(engine: str, wav: bytes, *, model: str, language: str | None,
     if engine == "local":
         text = LOCAL_WHISPER.transcribe(wav, model=model, language=language, prompt=prompt)
         return STTResult(text, (time.perf_counter() - t0) * 1000.0, engine, model, 0.0)
+    if engine == "mlx":
+        import numpy as np
+        from scribe_plus.audio import wav_to_pcm
+        pcm, _sr = wav_to_pcm(wav)
+        text = MLX_WHISPER.transcribe(pcm.astype(np.float32) / 32768.0, model=model,
+                                      language=language, prompt=prompt)
+        return STTResult(text, (time.perf_counter() - t0) * 1000.0, engine, model, 0.0)
 
     if engine not in ("groq", "openai"):
         raise EngineError(f"unknown speech engine {engine!r}")
@@ -281,6 +293,93 @@ class _LocalWhisper:
 
 
 LOCAL_WHISPER = _LocalWhisper()
+
+
+class _MlxWhisper:
+    """Whisper on the GPU of an Apple silicon Mac, through Apple's MLX.
+
+    Several times faster than the CPU engine above, which is what makes
+    live call transcripts possible without sending audio anywhere. Optional:
+    the Mac installer adds it with --calls. The model (about 1.5 GB) is
+    downloaded once from Hugging Face and then used from disk.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._paths: dict[str, str] = {}
+
+    @staticmethod
+    def available() -> bool:
+        return (sys.platform == "darwin" and platform.machine() == "arm64"
+                and importlib.util.find_spec("mlx_whisper") is not None)
+
+    def local_path(self, model: str) -> str | None:
+        """Where the model is on disk, or None if it hasn't been downloaded.
+        Never touches the network."""
+        if model in self._paths:
+            return self._paths[model]
+        path: str | None = None
+        if os.path.isdir(model):
+            path = model
+        else:
+            try:
+                from huggingface_hub import snapshot_download  # type: ignore
+                path = snapshot_download(repo_id=model, local_files_only=True)
+            except Exception:
+                path = None
+        if path:
+            self._paths[model] = path
+        return path
+
+    def downloaded(self, model: str) -> bool:
+        return self.local_path(model) is not None
+
+    def transcribe(self, samples, *, model: str, language: str | None, prompt: str) -> str:
+        """`samples`: 16 kHz mono float32."""
+        if not self.available():
+            raise EngineError(f"on-device Whisper is not installed ({MLX_HINT})")
+        import mlx_whisper  # type: ignore
+        path = self.local_path(model) or model     # not on disk yet: MLX downloads it
+        kw: dict = {}
+        if language and language != "auto":
+            kw["language"] = language
+        with self._lock:                           # one at a time on the GPU
+            out = mlx_whisper.transcribe(
+                samples, path_or_hf_repo=path, verbose=None,
+                temperature=(0.0, 0.4), condition_on_previous_text=False,
+                initial_prompt=prompt or None, **kw)
+        return str(out.get("text") or "").strip()
+
+    def preload(self, model: str) -> None:
+        """Load the model in the background so the first utterance isn't slow."""
+        def go() -> None:
+            try:
+                import numpy as np
+                t0 = time.perf_counter()
+                self.transcribe(np.zeros(8000, dtype=np.float32), model=model,
+                                language="en", prompt="")
+                log.info("on-device Whisper %s ready in %.1fs", model, time.perf_counter() - t0)
+            except Exception as exc:
+                log.warning("on-device Whisper preload failed: %s", exc)
+        threading.Thread(target=go, name="mlx-preload", daemon=True).start()
+
+
+MLX_WHISPER = _MlxWhisper()
+
+
+def transcribe_samples(engine: str, samples, *, model: str, language: str | None,
+                       prompt: str, pool: HttpPool, timeout: float = 30.0) -> STTResult:
+    """Speech-to-text for audio already in memory (16 kHz mono float32)."""
+    import numpy as np
+    audio_s = len(samples) / 16000.0
+    if engine == "mlx":
+        t0 = time.perf_counter()
+        text = MLX_WHISPER.transcribe(samples, model=model, language=language, prompt=prompt)
+        return STTResult(text, (time.perf_counter() - t0) * 1000.0, engine, model, 0.0)
+    from scribe_plus.audio import pcm_to_wav
+    pcm = (np.clip(np.asarray(samples, dtype=np.float32), -1.0, 1.0) * 32767.0).astype(np.int16)
+    return transcribe(engine, pcm_to_wav(pcm, 16000), model=model, language=language,
+                      prompt=prompt, pool=pool, audio_s=audio_s, timeout=timeout)
 
 
 # ---------------------------------------------------------------------------
@@ -402,6 +501,14 @@ def check_setup(settings, pool: HttpPool) -> list[tuple[bool, str]]:
         ok = LOCAL_WHISPER.available()
         out.append((ok, "Local Whisper installed" if ok else
                     f"Local Whisper not installed: {LOCAL_WHISPER_HINT}"))
+    elif stt_engine == "mlx":
+        ok = MLX_WHISPER.available()
+        out.append((ok, "On-device Whisper (MLX) installed" if ok else
+                    f"On-device Whisper not installed: {MLX_HINT}"))
+        if ok:
+            got = MLX_WHISPER.downloaded(settings.stt_model("mlx"))
+            out.append((got, "Speech model downloaded" if got else
+                        "Speech model not downloaded yet (it downloads on first use)"))
     if cleanup_engine in ("groq", "anthropic", "ollama"):
         wanted.setdefault(cleanup_engine, set()).update(
             {settings.cleanup_model(cleanup_engine), settings.command_model(cleanup_engine)})

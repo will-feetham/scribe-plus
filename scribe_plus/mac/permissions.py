@@ -1,9 +1,11 @@
 """
-The three macOS privacy permissions a dictation app needs, and how to ask.
+The macOS privacy permissions Scribe Plus needs, and how to ask.
 
   Input Monitoring  to see the hotkey (the keyboard event tap)
   Accessibility     to post Command+V / Command+C, and to swallow Esc
   Microphone        asked for automatically the first time it records
+  System Audio Recording   only for call transcripts: asked for automatically
+                    the first time a call is recorded (macOS 14.2 and newer)
 """
 from __future__ import annotations
 
@@ -17,6 +19,7 @@ PANES = {
     "input": "Privacy_ListenEvent",
     "accessibility": "Privacy_Accessibility",
     "microphone": "Privacy_Microphone",
+    "audio": "Privacy_AudioCapture",
 }
 _LISTEN_EVENT = 1  # kIOHIDRequestTypeListenEvent
 _iokit = None

@@ -13,13 +13,24 @@
 #   4. optionally starts it when you log in
 #   5. starts it; macOS then asks for the permissions a dictation app needs
 #
-# Options:  --local-whisper   also install offline speech-to-text
+# Options:  --calls           also set up call transcripts: speech-to-text that
+#                             runs on this Mac (Apple silicon; downloads a
+#                             1.5 GB model once). Needs macOS 14.2 or newer.
+#           --local-whisper   also install offline speech-to-text for dictation
 #           --no-login-item   don't start at login
 #           --yes             don't ask questions (use the defaults)
+# --calls and --local-whisper are remembered, so a later update keeps them.
 set -euo pipefail
 
 REPO="will-feetham/scribe-plus"
-TARBALL_URL="https://github.com/$REPO/releases/latest/download/ScribePlus-mac.tar.gz"
+# A test build of this script has its own version filled in here and installs
+# exactly that version. The normal script installs the latest release.
+RELEASE_TAG=""
+if [[ -n "$RELEASE_TAG" ]]; then
+    TARBALL_URL="https://github.com/$REPO/releases/download/$RELEASE_TAG/ScribePlus-mac.tar.gz"
+else
+    TARBALL_URL="https://github.com/$REPO/releases/latest/download/ScribePlus-mac.tar.gz"
+fi
 BASE="${SCRIBE_PLUS_ROOT:-$HOME/Library/Application Support/Scribe Plus}"
 APPS="${SCRIBE_PLUS_APPS:-$HOME/Applications}"
 APP="$APPS/Scribe Plus.app"
@@ -28,10 +39,17 @@ AGENT="$HOME/Library/LaunchAgents/$LABEL.plist"
 PYVER="3.12"
 
 LOCAL_WHISPER=0
+CALLS=0
 LOGIN_ITEM=ask
 ASSUME_YES=0
+OPTIONS="$BASE/install-options"
+if [[ -f "$OPTIONS" ]]; then          # what you chose last time
+    if grep -qx "calls" "$OPTIONS"; then CALLS=1; fi
+    if grep -qx "local-whisper" "$OPTIONS"; then LOCAL_WHISPER=1; fi
+fi
 for arg in "$@"; do
     case "$arg" in
+        --calls) CALLS=1 ;;
         --local-whisper) LOCAL_WHISPER=1 ;;
         --no-login-item) LOGIN_ITEM=no ;;
         --yes|-y) ASSUME_YES=1 ;;
@@ -68,12 +86,15 @@ fi
 
 # --- 2. download the release -------------------------------------------------
 mkdir -p "$BASE"
+: > "$OPTIONS"
+if [[ "$CALLS" == 1 ]]; then echo "calls" >> "$OPTIONS"; fi
+if [[ "$LOCAL_WHISPER" == 1 ]]; then echo "local-whisper" >> "$OPTIONS"; fi
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 if [[ -n "${SCRIBE_PLUS_TARBALL:-}" ]]; then
     cp "$SCRIBE_PLUS_TARBALL" "$work/release.tar.gz"
 else
-    say "Downloading the latest Scribe Plus"
+    say "Downloading Scribe Plus${RELEASE_TAG:+ $RELEASE_TAG (test build)}"
     curl -fsSL --retry 3 -o "$work/release.tar.gz" "$TARBALL_URL" \
         || die "couldn't download $TARBALL_URL"
 fi
@@ -117,10 +138,48 @@ reqs=(-r "$BASE/app/requirements-plus-mac.txt")
 [[ "$LOCAL_WHISPER" == 1 ]] && reqs+=(-r "$BASE/app/requirements-local.txt")
 VIRTUAL_ENV="$BASE/venv" "$UV" pip install --quiet "${reqs[@]}"
 
+# --- 3b. call transcripts: speech-to-text that runs on this Mac ------------------
+if [[ "$CALLS" == 1 ]]; then
+    IFS=. read -r os_major os_minor _ <<<"$(sw_vers -productVersion)"
+    if (( os_major < 14 || (os_major == 14 && ${os_minor:-0} < 2) )); then
+        echo "Note: call transcripts need macOS 14.2 or newer; this Mac has $(sw_vers -productVersion)."
+        echo "      Dictation works as before."
+    fi
+    if [[ "$(uname -m)" == "arm64" ]]; then
+        say "Installing on-device speech-to-text for call transcripts"
+        VIRTUAL_ENV="$BASE/venv" "$UV" pip install --quiet -r "$BASE/app/requirements-calls-mac.txt"
+        # Without its listed dependencies: it names PyTorch, which only its
+        # model-conversion tool uses (a 200 MB download the app never needs).
+        VIRTUAL_ENV="$BASE/venv" "$UV" pip install --quiet --no-deps mlx-whisper
+        model="${SCRIBE_PLUS_CALLS_MODEL:-mlx-community/whisper-large-v3-turbo}"
+        say "Getting the speech model (about 1.5 GB the first time; later updates reuse it)"
+        "$BASE/venv/bin/python" -c 'import sys
+from huggingface_hub import snapshot_download
+snapshot_download(repo_id=sys.argv[1])' "$model" \
+            || echo "The model didn't download just now. Scribe Plus fetches it on your first call."
+    else
+        say "Intel Mac: installing the processor-based speech-to-text for call transcripts"
+        VIRTUAL_ENV="$BASE/venv" "$UV" pip install --quiet -r "$BASE/app/requirements-local.txt"
+    fi
+fi
+
 # --- 4. the app bundle ---------------------------------------------------------
 mkdir -p "$APPS"
+# macOS ties the permissions you grant to the exact app. Most updates leave the
+# app itself untouched (the code lives outside it); when one does change it,
+# the old grants stop applying without saying so. Clearing them makes macOS
+# ask again, instead of leaving switches that look on but do nothing.
+app_changed=0
+if [[ -d "$APP" ]] && ! diff -rq "$APP" "$BASE/app/macos/Scribe Plus.app" >/dev/null 2>&1; then
+    app_changed=1
+fi
 rm -rf "$APP"
 cp -R "$BASE/app/macos/Scribe Plus.app" "$APP"
+if [[ "$app_changed" == 1 && "$CI_MODE" != 1 ]]; then
+    for service in ListenEvent Accessibility Microphone AudioCapture; do
+        tccutil reset "$service" "$LABEL" >/dev/null 2>&1 || true
+    done
+fi
 xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
 codesign --verify "$APP" 2>/dev/null \
     || codesign --force --sign - --identifier "$LABEL" "$APP"
@@ -178,8 +237,14 @@ fi
 cat <<EOF
 
 Scribe Plus $version is running: look for the five bars in your menu bar.
+EOF
+if [[ "$app_changed" == 1 ]]; then
+    echo
+    echo "This update changed the app itself, so macOS asks for its permissions again."
+fi
+cat <<EOF
 
-macOS will ask for three permissions the first time. Turn Scribe Plus on for:
+macOS asks for three permissions the first time. Turn Scribe Plus on for:
   1. Input Monitoring  (so it can see the hotkey)
   2. Accessibility     (so it can paste for you)
   3. Microphone        (asked the first time you dictate)
@@ -188,3 +253,12 @@ Scribe Plus restarts itself once they're on.
 Then click into any text box, hold Right Option, talk, and let go.
 To update later, run the same install command again.
 EOF
+if [[ "$CALLS" == 1 ]]; then
+    cat <<EOF
+
+Call transcripts are set up. On your first call macOS asks for one more
+permission, System Audio Recording, so Scribe Plus can hear the other side.
+Transcripts go to "Scribe Plus/Calls" in your home folder; the Calls menu
+under the menu bar icon has the rest.
+EOF
+fi

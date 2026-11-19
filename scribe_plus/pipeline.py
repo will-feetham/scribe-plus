@@ -352,11 +352,14 @@ class DictationEngine:
                 self.platform.restore_clipboard(selection.get("saved"))
             return None
 
-        raw = res.text.strip()
+        heard = res.text.strip()
+        raw = textproc.strip_prompt_echo(heard, prompt)
+        if raw != heard:
+            log.info("removed what the speech model made up: %r -> %r", heard, raw)
         row.update(stt_engine=res.engine, stt_model=res.model, stt_ms=res.ms,
                    raw_text=raw, words_raw=len(textproc.word_list(raw)))
         cost = res.cost_usd
-        if not raw or self.hooks.is_garbage(raw) or (prompt and raw.strip(" .") == prompt.strip(" .")):
+        if not raw or self.hooks.is_garbage(raw):
             row["error"] = "no speech"
             row["est_cost_usd"] = cost
             self._finish_row(row, ms_since_release())
@@ -372,6 +375,14 @@ class DictationEngine:
             if sel_thread:
                 sel_thread.join(2.0)
             restore = selection.get("saved")
+            if not selection.get("text", "").strip() and not st.get("command_writes_without_selection"):
+                # Nothing was selected, so there is nothing to rewrite: type the
+                # words as spoken. (Otherwise a brushed Command Mode key turns
+                # "make a note to..." into a note the model wrote itself.)
+                mode = "dictate"
+                row["mode"] = "dictate"
+                row["guard"] = "no selection"
+        if mode == "command":
             final, llm_cost = self._command(raw, selection.get("text", ""), style_key, s, row)
             if final is None:
                 self._finish_row(row | {"est_cost_usd": cost + llm_cost}, ms_since_release())

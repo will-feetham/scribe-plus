@@ -35,6 +35,15 @@ CLEANUP_CHOICES = [
     ("Local model via Ollama", "ollama", None),
     ("Off (raw transcript)", "off", None),
 ]
+if sys.platform == "darwin":
+    STT_CHOICES.insert(3, ("On this Mac: MLX Whisper (offline, Apple silicon)", "mlx", None))
+CALL_ENGINE_CHOICES = [
+    ("Automatic: on this computer", "auto"),
+    ("On this Mac: MLX Whisper", "mlx"),
+    ("On this computer: Whisper on the processor (slower)", "local"),
+    ("Groq (cloud: call audio leaves this computer)", "groq"),
+    ("OpenAI (cloud: call audio leaves this computer)", "openai"),
+]
 FEATURE_TOGGLES = [
     ("App-aware style", "app_aware_style"),
     ("Command Mode", "command_mode"),
@@ -96,6 +105,7 @@ class TrayApp:
             is_down=self._physically_down, paste_groups=self._paste_groups(),
         )
         self.hook = self._make_hook()
+        self.calls = self._make_calls()
         self.icon.menu = self._menu()
 
     # -- OS hooks: subclasses implement these ------------------------------
@@ -145,6 +155,11 @@ class TrayApp:
     def extra_menu_items(self) -> list:
         """OS-specific items placed above API keys (Mac: Permissions)."""
         return []
+
+    def _make_calls(self):
+        """The call recorder (scribe_plus.calls.manager.CallManager), where the
+        OS supports it. None means no Calls menu."""
+        return None
 
     def quit(self) -> None:
         raise NotImplementedError
@@ -205,9 +220,10 @@ class TrayApp:
         M, I = self.pystray.Menu, self.pystray.MenuItem
         spec = self._spec()
         status = "Paused" if self.engine.paused else f"Hold {spec.label} to dictate"
-        local_ok = self.engines.LOCAL_WHISPER.available()
+        installed = {"local": self.engines.LOCAL_WHISPER.available(),
+                     "mlx": self.engines.MLX_WHISPER.available()}
 
-        stt = [I(label + ("" if engine != "local" or local_ok else " (not installed)"),
+        stt = [I(label + ("" if installed.get(engine, True) else " (not installed)"),
                  self._set_stt(engine, model), checked=self._is_stt(engine, model), radio=True)
                for label, engine, model in STT_CHOICES]
         cleanup = [I(label, self._set_cleanup(engine, model),
@@ -246,6 +262,7 @@ class TrayApp:
         return M(
             I(status, None, enabled=False),
             M.SEPARATOR,
+            *self._calls_menu(),
             I("Transcription", M(*stt)),
             I("Cleanup model", M(*cleanup)),
             I("Language", M(*langs)),
@@ -270,6 +287,122 @@ class TrayApp:
             I(f"Quit {APP_TITLE}", lambda *_: self.quit()),
         )
 
+    # -- calls -------------------------------------------------------------------
+
+    def _call_apps(self) -> list[dict]:
+        apps = self.settings.get("calls_apps")
+        return apps if isinstance(apps, list) else []
+
+    def _calls_menu(self) -> list:
+        if self.calls is None:
+            return []
+        M, I = self.pystray.Menu, self.pystray.MenuItem
+        ok, why = self.calls.available()
+        if not ok:
+            return [I("Calls", M(I(why[:1].upper() + why[1:], None, enabled=False)))]
+        st = self.calls.status()
+        if st["recording"]:
+            status = f"Recording: {st['name']} since {st['started']:%H:%M}"
+            toggle = I("Stop recording", lambda *_: self.calls.stop())
+        else:
+            _engine, _model, problem = self.calls.resolve_engine()
+            if problem:
+                status = "Not ready: " + problem
+            elif self.settings.get("calls_enabled"):
+                status = "Watching for calls"
+            else:
+                status = "Not watching for calls"
+            toggle = I("Start recording now (microphone + all sound)",
+                       lambda *_: self.calls.start_manual())
+        apps = [I(str(app.get("name")), self._toggle_call_app(i), checked=self._is_call_app(i))
+                for i, app in enumerate(self._call_apps())]
+        capture = [I("Only the calling app's sound", self._set_value("calls_capture", "app"),
+                     checked=self._is_value("calls_capture", "app"), radio=True),
+                   I("Everything this computer plays", self._set_value("calls_capture", "system"),
+                     checked=self._is_value("calls_capture", "system"), radio=True)]
+        installed = {"local": self.engines.LOCAL_WHISPER.available(),
+                     "mlx": self.engines.MLX_WHISPER.available()}
+        call_engines = [I(label + ("" if installed.get(key, True) else " (not installed)"),
+                          self._set_call_engine(key), checked=self._is_value("calls_engine", key),
+                          radio=True)
+                        for label, key in CALL_ENGINE_CHOICES
+                        if key != "mlx" or sys.platform == "darwin"]
+        return [I("Calls", M(
+            I(status, None, enabled=False),
+            toggle,
+            M.SEPARATOR,
+            I("Copy last call", self._copy_last_call),
+            I("Open last call", self._open_last_call),
+            I("Open Calls folder", self._open_calls_folder),
+            M.SEPARATOR,
+            I("Notice calls automatically", self._toggle("calls_enabled"),
+              checked=self._is_true("calls_enabled")),
+            I("In these apps", M(*apps)),
+            I("Copy the transcript when a call ends", self._toggle("calls_copy_on_end"),
+              checked=self._is_true("calls_copy_on_end")),
+            I("Record", M(*capture)),
+            I("Transcribe with", M(*call_engines)),
+        ))]
+
+    def _is_call_app(self, index):
+        def checked(_item):
+            apps = self._call_apps()
+            return index < len(apps) and bool(apps[index].get("enabled", True))
+        return checked
+
+    def _toggle_call_app(self, index):
+        def cb(_icon, _item):
+            apps = [dict(a) for a in self._call_apps()]
+            if index < len(apps):
+                apps[index]["enabled"] = not bool(apps[index].get("enabled", True))
+                self.settings.set("calls_apps", apps)
+            self._rebuild()
+        return cb
+
+    def _set_call_engine(self, key):
+        def cb(_icon, _item):
+            if key == "mlx" and not self.engines.MLX_WHISPER.available():
+                self.notify("On-device Whisper not installed",
+                            self.engines.MLX_HINT[0].upper() + self.engines.MLX_HINT[1:] + ".")
+                return
+            if key == "local" and not self.engines.LOCAL_WHISPER.available():
+                self.notify("Local Whisper not installed",
+                            self.engines.LOCAL_WHISPER_HINT[0].upper()
+                            + self.engines.LOCAL_WHISPER_HINT[1:] + ".")
+                return
+            if key in ("groq", "openai"):
+                name = key.capitalize() if key == "groq" else "OpenAI"
+                if not self.engines.api_key(key):
+                    self.notify(f"{name} key needed", f"Add it from API keys > {name} key...")
+                    return
+                self.notify("Calls will be transcribed in the cloud",
+                            f"From now on, the audio of both sides of a call is sent to {name}.")
+            self.settings.set("calls_engine", key)
+            self._rebuild()
+        return cb
+
+    def _copy_last_call(self, *_):
+        if self.calls.copy_last():
+            self.notify("Copied last call", str(self.calls.last_file().name))
+        else:
+            self.notify("No call yet", "The transcript of a call appears here once one is recorded.")
+
+    def _open_last_call(self, *_):
+        path = self.calls.last_file()
+        if path is None:
+            self.notify("No call yet", "The transcript of a call appears here once one is recorded.")
+            return
+        self.open_path(path)
+
+    def _open_calls_folder(self, *_):
+        folder = self.calls.calls_dir()
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            self.notify("Calls folder", str(exc)[:150])
+            return
+        self.open_path(folder)
+
     def _copy_last(self, *_):
         rows = self.core.load_history(limit=1)
         if not rows:
@@ -289,11 +422,17 @@ class TrayApp:
                             self.engines.LOCAL_WHISPER_HINT[0].upper()
                             + self.engines.LOCAL_WHISPER_HINT[1:] + ".")
                 return
+            if engine == "mlx" and not self.engines.MLX_WHISPER.available():
+                self.notify("On-device Whisper not installed",
+                            self.engines.MLX_HINT[0].upper() + self.engines.MLX_HINT[1:] + ".")
+                return
             if model:
                 self.settings.set_nested("stt_models", engine, model)
             self.settings.set("stt_engine", engine)
             if engine == "local":
                 self.engines.LOCAL_WHISPER.preload(self.settings.stt_model("local"))
+            if engine == "mlx":
+                self.engines.MLX_WHISPER.preload(self.settings.stt_model("mlx"))
             self._rebuild()
         return cb
 

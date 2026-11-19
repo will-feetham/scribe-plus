@@ -124,15 +124,46 @@ def expand_snippets(text: str, snippets: list[Snippet]) -> str:
 
 
 def whisper_prompt(dictionary: Dictionary, max_chars: int = 600) -> str:
-    """Vocabulary hint for the speech model (it biases spelling)."""
+    """Spelling hint for the speech model: the dictionary's terms, as a plain
+    list. The model treats this as text spoken just before the recording, so
+    it carries no label: a label word ("Vocabulary:") is one more thing the
+    model can repeat back when it can't make out the audio."""
     words: list[str] = []
-    used = len("Vocabulary: .")
+    used = 1
     for w in dictionary.spellings:
         if used + len(w) + 2 > max_chars:
             break
         words.append(w)
         used += len(w) + 2
-    return f"Vocabulary: {', '.join(words)}." if words else ""
+    return f"{', '.join(words)}." if words else ""
+
+
+_SENTENCE = re.compile(r"[^.!?]+[.!?]*")
+
+
+def strip_prompt_echo(text: str, prompt: str = "") -> str:
+    """Remove what a speech model invents when it can't hear the audio.
+
+    Two shapes, both seen in real dictations: the whole spelling hint handed
+    back as if it had been said, and a short fragment repeated over and over
+    at the end ("Vocabulary. Vocabulary. Vocabulary. Vocabulary.")."""
+    t = (text or "").strip()
+    if not t:
+        return ""
+    if prompt and _plain(t) == _plain(prompt):
+        return ""
+    parts = [m.group(0).strip() for m in _SENTENCE.finditer(t) if m.group(0).strip()]
+    if len(parts) >= 3:
+        last = _plain(parts[-1])
+        run = 0
+        for part in reversed(parts):
+            if _plain(part) != last:
+                break
+            run += 1
+        if run >= 3 and last and len(last.split()) <= 3:
+            parts = parts[:len(parts) - run]
+            t = " ".join(parts).strip()
+    return t
 
 
 # ---------------------------------------------------------------------------

@@ -35,8 +35,28 @@ def test_snippet_text_with_backslashes_is_literal():
 def test_whisper_prompt_is_bounded():
     d = T.Dictionary(terms=[f"Term{i:03d}" for i in range(200)])
     p = T.whisper_prompt(d, max_chars=120)
-    assert p.startswith("Vocabulary: ") and p.endswith(".") and len(p) <= 120
+    assert p.startswith("Term000, Term001") and p.endswith(".") and len(p) <= 120
     assert T.whisper_prompt(T.Dictionary()) == ""
+    # No label word: a label is one more thing the speech model can repeat back.
+    assert T.whisper_prompt(T.Dictionary(terms=["Mafi", "Feetham"])) == "Mafi, Feetham."
+
+
+def test_speech_model_echoes_are_removed():
+    hint = "Mafi, Feetham, Claude, Claude Code."
+    # the whole hint handed back as if it had been said
+    assert T.strip_prompt_echo("Mafi, Feetham, Claude, Claude Code.", hint) == ""
+    assert T.strip_prompt_echo("mafi feetham claude claude code", hint) == ""
+    # a fragment repeated at the end (a real dictation from October)
+    said = ("So I tried to make a note, and it presented the email rather than transcribing. "
+            "Vocabulary. Vocabulary. Vocabulary. Vocabulary.")
+    assert T.strip_prompt_echo(said, hint) == \
+        "So I tried to make a note, and it presented the email rather than transcribing."
+    assert T.strip_prompt_echo("Thank you. Thank you. Thank you.", "") == ""
+    # real speech is left alone
+    for text in ("Claude Code.", "Email Mafi and Claude about the Feetham account.",
+                 "No. No. I said Tuesday.", "Yes, yes, yes.", "Go. Go. Go to the next one, please."):
+        assert T.strip_prompt_echo(text, hint) == text
+    assert T.strip_prompt_echo("", hint) == ""
 
 
 def test_cleanup_messages_carry_style_glossary_and_triggers():

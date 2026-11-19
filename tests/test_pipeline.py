@@ -213,6 +213,40 @@ def test_command_mode_rewrites_selection(env):
     assert read_metrics(env[1])[0]["mode"] == "command"
 
 
+def test_command_mode_with_nothing_selected_types_what_was_said(env):
+    # A brushed Command Mode key must not turn a note into something the model wrote.
+    api = Api(stt="create this thing as a note to myself", chat="Create this thing as a note to myself.")
+    plat = FakePlatform(selection="")
+    eng = make_engine(env, plat, api, FakeRecorder(speech_wav()))
+    dictate(eng, plat, mode="command")
+    assert plat.pasted == [("Create this thing as a note to myself.", "ORIGINAL CLIPBOARD")]
+    assert "<transcript>" in api.last_chat["messages"][-1]["content"]      # the cleanup prompt, not Command Mode's
+    assert api.last_chat["model"] == "openai/gpt-oss-20b"
+    row = read_metrics(env[1])[0]
+    assert row["mode"] == "dictate" and row["guard"] == "no selection"
+
+
+def test_command_mode_can_still_write_from_nothing_if_you_turn_it_on(env):
+    env[0].set("command_writes_without_selection", True)
+    api = Api(stt="draft a thank you note", chat="Thank you so much for your help.")
+    plat = FakePlatform(selection="")
+    eng = make_engine(env, plat, api, FakeRecorder(speech_wav()))
+    dictate(eng, plat, mode="command")
+    assert plat.pasted[0][0] == "Thank you so much for your help."
+    assert "<instruction>draft a thank you note</instruction>" in api.last_chat["messages"][-1]["content"]
+
+
+def test_repeated_fragment_from_the_speech_model_is_dropped(env):
+    api = Api(stt="It printed this instead of what I said. Vocabulary. Vocabulary. Vocabulary. Vocabulary.",
+              chat="It printed this instead of what I said.")
+    plat = FakePlatform()
+    eng = make_engine(env, plat, api, FakeRecorder(speech_wav()))
+    dictate(eng, plat)
+    assert plat.pasted[0][0] == "It printed this instead of what I said."
+    assert "Vocabulary" not in api.last_chat["messages"][-1]["content"]
+    assert read_metrics(env[1])[0]["raw_text"] == "It printed this instead of what I said."
+
+
 def test_transcription_failure_keeps_audio_and_tells_user(env):
     api, plat, unsent = Api(stt_status=503), FakePlatform(), []
     eng = make_engine(env, plat, api, FakeRecorder(speech_wav()), unsent=unsent)

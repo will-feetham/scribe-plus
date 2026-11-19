@@ -1,11 +1,17 @@
 # On every push to main: run all the tests, and if the version in
 # scribe_plus/__init__.py has no release yet, build and publish one.
 # The download page always points at the newest release.
+#
+# The beta branch works the same way for test builds: a version such as
+# 1.1.0b1 is published as a GitHub pre-release with its own install line.
+# Pre-releases are never "latest", so the download page and the normal
+# install line stay on the last full release. main never publishes a test
+# version, and beta never publishes a full one.
 name: Release
 
 on:
   push:
-    branches: [main]
+    branches: [main, beta]
   workflow_dispatch:
 
 permissions:
@@ -21,6 +27,7 @@ jobs:
     outputs:
       version: ${{ steps.v.outputs.version }}
       needed: ${{ steps.v.outputs.needed }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v7
       - id: v
@@ -29,13 +36,25 @@ jobs:
         run: |
           version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' scribe_plus/__init__.py)
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          case "$version" in
+            *a[0-9]*|*b[0-9]*|*rc[0-9]*) prerelease=true ;;
+            *) prerelease=false ;;
+          esac
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          needed=true
           if gh release view "v$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "needed=false" >> "$GITHUB_OUTPUT"
+            needed=false
             echo "v$version is already released; tests only."
+          elif [ "$GITHUB_REF_NAME" = main ] && [ "$prerelease" = true ]; then
+            needed=false
+            echo "$version is a test version; main only publishes full releases. Tests only."
+          elif [ "$GITHUB_REF_NAME" != main ] && [ "$prerelease" = false ]; then
+            needed=false
+            echo "$version is a full version; only main publishes those. Tests only."
           else
-            echo "needed=true" >> "$GITHUB_OUTPUT"
-            echo "Will release v$version."
+            echo "Will release v$version (pre-release: $prerelease)."
           fi
+          echo "needed=$needed" >> "$GITHUB_OUTPUT"
 
   tests:
     uses: ./.github/workflows/ci.yml
@@ -55,10 +74,25 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.check.outputs.version }}
+          PRERELEASE: ${{ needs.check.outputs.prerelease }}
         run: |
+          flags=(--target "$GITHUB_SHA")
+          title="Scribe Plus $VERSION"
+          notes="Install or update: https://scribeplus.feetham.us"
+          if [ "$PRERELEASE" = true ]; then
+            # This build's Mac installer installs this build, not the latest release.
+            sed -i "s/^RELEASE_TAG=\"\"/RELEASE_TAG=\"v$VERSION\"/" install-mac.sh
+            grep -q "^RELEASE_TAG=\"v$VERSION\"" install-mac.sh
+            flags+=(--prerelease)
+            title="Scribe Plus $VERSION (test build)"
+            notes="Test build, not on the download page. Mac install line (with call transcripts):
+
+              curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/v$VERSION/install-mac.sh | bash -s -- --calls"
+          fi
           gh release create "v$VERSION" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "Scribe Plus $VERSION" \
+            --title "$title" \
             --generate-notes \
-            --notes "Install or update: https://scribeplus.feetham.us" \
+            --notes "$notes" \
+            "${flags[@]}" \
             ScribePlus-Windows.zip ScribePlus-mac.tar.gz install-mac.sh install-windows.ps1

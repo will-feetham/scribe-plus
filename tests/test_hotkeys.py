@@ -47,6 +47,16 @@ def test_alt_during_hold_switches_to_command_mode():
     assert acts(up(m, VK_LWIN, 1.5)) == [("stop", "command")]
 
 
+def test_command_key_pressed_late_is_ignored():
+    # Command Mode is chosen at the start; the same key mid-dictation is a slip.
+    m = machine()
+    down(m, VK_LCONTROL, 0.0)
+    down(m, VK_LWIN, 0.01)
+    assert acts(down(m, VK_LMENU, 3.0)) == []
+    up(m, VK_LMENU, 3.2)
+    assert acts(up(m, VK_LWIN, 6.0)) == [("stop", "dictate")]
+
+
 def test_alt_held_before_hotkey_is_command_mode():
     m = machine()
     down(m, VK_LMENU, 0.0)

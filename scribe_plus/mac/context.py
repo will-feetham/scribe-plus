@@ -41,3 +41,36 @@ def foreground() -> tuple[int, str, str]:
     except Exception as exc:
         log.debug("frontmost app lookup failed: %s", exc)
         return 0, "", ""
+
+
+def window_titles(bundle_prefixes: list[str]) -> list[str]:
+    """Titles of the open windows of the apps whose bundle id starts with one
+    of the prefixes. Used to label a call with what the calling app shows
+    (often the contact). Needs Accessibility; returns [] without it."""
+    titles: list[str] = []
+    prefixes = [p.lower() for p in bundle_prefixes if p]
+    if not prefixes:
+        return titles
+    try:
+        from AppKit import NSWorkspace
+        from ApplicationServices import (AXUIElementCopyAttributeValue,
+                                         AXUIElementCreateApplication,
+                                         AXUIElementSetMessagingTimeout,
+                                         kAXTitleAttribute, kAXWindowsAttribute)
+        for app in NSWorkspace.sharedWorkspace().runningApplications() or []:
+            bundle = str(app.bundleIdentifier() or "").lower()
+            if not bundle or not any(bundle.startswith(p) for p in prefixes):
+                continue
+            element = AXUIElementCreateApplication(int(app.processIdentifier()))
+            AXUIElementSetMessagingTimeout(element, 1.0)   # never hang on a busy app
+            err, windows = AXUIElementCopyAttributeValue(element, kAXWindowsAttribute, None)
+            if err or not windows:
+                continue
+            for window in windows:
+                err, title = AXUIElementCopyAttributeValue(window, kAXTitleAttribute, None)
+                text = " ".join(str(title).split()) if not err and title else ""
+                if text and text not in titles:
+                    titles.append(text)
+    except Exception as exc:
+        log.debug("window titles lookup failed: %s", exc)
+    return titles

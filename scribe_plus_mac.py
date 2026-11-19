@@ -3,7 +3,8 @@
 Scribe Plus for macOS: AI dictation built on Scribe by Avi Ibrahms (github.com/avibrahms/scribe).
 
 Hold Right Option, talk, let go: the speech is transcribed, cleaned up by a
-fast language model and pasted wherever your cursor is.
+fast language model and pasted wherever your cursor is. It also writes a
+transcript of both sides of your calls (see scribe_plus/calls).
 
 Normally started from "Scribe Plus.app", which the installer builds. For
 development:   venv/bin/python scribe_plus_mac.py --debug
@@ -114,6 +115,16 @@ class App(TrayApp):
         from scribe_plus.mac import keys
         return keys.physically_down(vk)
 
+    def _make_calls(self):
+        from scribe_plus.calls.manager import CallManager
+        from scribe_plus.mac.calls import MacCallPlatform
+        calls = CallManager(self.settings, MacCallPlatform(S.APP_DIR), notify=self.notify,
+                            copy=self.platform.copy, pool=self.engine.pool,
+                            dictionary=self.engine._dictionary.get,
+                            mic_device=self.core.load_input_device)
+        calls.on_change = lambda: self.ui_call(self._rebuild)
+        return calls
+
     def _paste_groups(self) -> tuple:
         from scribe_plus.hotkeys import PASTE_LAST_MAC
         return PASTE_LAST_MAC
@@ -154,6 +165,7 @@ class App(TrayApp):
             I("Input Monitoring (hotkey)...", lambda *_: P.open_pane("input")),
             I("Accessibility (paste)...", lambda *_: P.open_pane("accessibility")),
             I("Microphone...", lambda *_: P.open_pane("microphone")),
+            I("System Audio Recording (call transcripts)...", lambda *_: P.open_pane("audio")),
             M.SEPARATOR,
             I("Restart Scribe Plus", lambda *_: self.restart()),
         ))]
@@ -162,6 +174,11 @@ class App(TrayApp):
         log.info("quitting")
         try:
             self.hook.stop()
+        except Exception:
+            pass
+        try:
+            if self.calls is not None:
+                self.calls.shutdown()
         except Exception:
             pass
         os._exit(0)
@@ -217,6 +234,8 @@ class App(TrayApp):
         from PyObjCTools.AppHelper import callLater
         self._check_permissions()
         self.hook.start()
+        if self.calls is not None:
+            self.calls.start()
         threading.Thread(target=self._warm_up, name="warm-up", daemon=True).start()
         callLater(1.5, self._first_run_checks)
         self.icon.run()
@@ -289,6 +308,11 @@ def smoke_test(out_dir: str) -> int:
             break
         time.sleep(0.1)
     report.append(f"notifications in_bundle={in_app_bundle()} status={app.notifier.status}")
+    ok, why = app.calls.available()
+    engine, model, problem = app.calls.resolve_engine()
+    report.append(f"calls available={ok} {why}".rstrip())
+    report.append(f"calls engine={engine or 'none'} model={model} {problem}".rstrip())
+    report.append(f"calls folder {app.calls.calls_dir()}")
     (out / "report.txt").write_text("\n".join(report) + "\n", encoding="utf-8")
     print("\n".join(report))
     ok = all(s[1] for s in shots)

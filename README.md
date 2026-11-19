@@ -26,6 +26,7 @@ cursor is, in any app.
 | Personal dictionary and voice snippets | | ✓ |
 | Tone that fits the app you're in (Slack, Gmail, VS Code...) | | ✓ |
 | Hands-free mode (double-tap, no holding) | | ✓ |
+| Call transcripts: both sides of a call, labelled, ready when you hang up (Mac, test build) | | ✓ |
 | Animated status pill above the Dock or taskbar | | ✓ |
 | Latency and cost log, plus a benchmark across engines | | ✓ |
 | Read-aloud (text-to-speech) | ✓ | |
@@ -76,7 +77,7 @@ settings. A git checkout runs where it is instead, for development.
 | Gesture | Mac (default) | Windows (default) | What happens |
 |---|---|---|---|
 | Hold, talk, release | **Right Option** | **Ctrl+Win** | Dictation: transcribed, cleaned up, pasted at the cursor |
-| Hold with the extra key, talk, release | **Right Option + Shift** | **Ctrl+Win+Alt** | Command Mode: rewrites the selected text ("make this friendlier", "turn this into bullets"). With nothing selected, it writes what you ask for |
+| Hold with the extra key, talk, release | **Right Option + Shift** | **Ctrl+Win+Alt** | Command Mode: rewrites the selected text ("make this friendlier", "turn this into bullets"). Press the extra key together with the hotkey; pressed later, mid-dictation, it is ignored. With nothing selected, your words are typed as a normal dictation |
 | Double-tap | **Right Option** | **Ctrl+Win** | Hands-free: keeps listening; press the hotkey again to finish |
 | While recording | **Esc** | **Esc** | Cancel (the Esc is swallowed so it doesn't close your dialog) |
 | Any time | **Control+Command+V** | **Ctrl+Alt+V** | Paste the last dictation again |
@@ -104,6 +105,38 @@ phrase and the saved text goes in instead.
 
 Both files, `settings.json` and the logs live in `%APPDATA%\scribe\plus` on Windows and
 `~/.config/scribe/plus` on a Mac. The menu opens each of them.
+
+## Call transcripts (Mac, test build)
+
+Scribe Plus can write down both sides of a phone or video call while it happens.
+
+- **It notices the call by itself.** When a watched app (Groove OmniDialer, Zoom and Microsoft
+  Teams to begin with; Google Meet in Chrome and Slack huddles can be switched on) opens the
+  microphone, a recording starts. When the app lets go, it ends. "Start recording now" in the
+  Calls menu does the same by hand, for anything else.
+- **Both sides, labelled.** "Me" is your microphone. "Them" is what the calling app plays, and
+  only that app, so music or alerts from elsewhere stay out. Everyone on the other end is "Them".
+- **Live.** Speech is transcribed a sentence at a time during the call, so the transcript is
+  finished a few seconds after you hang up.
+- **Where it goes.** Each call gets its own file in `Scribe Plus/Calls` in your home folder, for
+  example `2026-11-19 1142 Groove OmniDialer.md`. `latest.md` in the same folder is always the
+  call in progress or the last one finished (its Status line says which), so it is the one file
+  to point Claude or another tool at. When a call ends the transcript is also copied to the
+  clipboard; that can be switched off.
+- **On this Mac.** By default the speech-to-text runs on the Mac itself (Whisper through Apple's
+  MLX, on Apple silicon), so call audio never leaves the computer. You can pick Groq or OpenAI
+  for calls in the Calls menu; nothing is sent to them unless you do. Audio is not kept after it
+  is transcribed.
+
+Set it up by adding `--calls` to the install line (`... | bash -s -- --calls`). That installs
+the on-device speech model, a 1.5 GB download the first time. It needs macOS 14.2 or newer, and
+macOS asks for one more permission on the first call: System Audio Recording, which is what lets
+Scribe Plus hear the other side. Headphones give the cleanest result. On speakers your microphone
+also hears the other side; repeated lines are dropped, but not perfectly.
+
+If your calls ring through to a desk phone or mobile (Groove's Bridge Dial, for example), the Mac
+never hears them and there is nothing to record. And recording calls is your responsibility: make
+sure the people on the call know, and that your employer allows it.
 
 ## Engines and what they cost
 
@@ -156,6 +189,8 @@ log. Clips are saved only while "Save audio for benchmarks" is on (the newest 30
 
 Audio goes to the speech provider you pick (Groq by default), and the transcript goes to the
 cleanup provider (Groq by default). With local Whisper and Ollama, nothing leaves the machine.
+Call transcripts are separate: they are made on the Mac itself unless you choose a cloud provider
+for them, and their audio is not kept.
 API keys live only in the app folder's `.env`, which git ignores. Audio clips, history and logs
 stay in the data folder above. There is no analytics or phone-home, same as Scribe. The menu's
 "get updates" item just opens the download page.
@@ -175,6 +210,10 @@ stay in the data folder above. There is no analytics or phone-home, same as Scri
 
 **Mac**
 
+- **A call was not recorded, or "Them" is missing.** Menu bar icon > Permissions > System Audio
+  Recording, and turn on Scribe Plus. Check that the app is ticked under Calls > In these apps.
+  The log (`~/.config/scribe/plus/scribe-plus.log`) has a "call watch" line each time a watched
+  app starts or stops using the microphone, which shows whether the call was noticed.
 - **The hotkey does nothing.** Open the menu bar icon > Permissions, turn on Scribe Plus under
   Input Monitoring and Accessibility in System Settings, then choose Restart Scribe Plus. If it
   was already on, turn it off and on again.
@@ -218,13 +257,14 @@ scribe_plus/
   tray.py                the app and its menu, shared by both platforms
   hotkeys.py             gesture state machine (pure Python, unit-tested)
   pipeline.py            record > prep > speech > cleanup/command > paste > log
-  engines.py             Groq, OpenAI, Anthropic, Ollama, local Whisper; keep-alive + prewarm
+  engines.py             Groq, OpenAI, Anthropic, Ollama, local Whisper, MLX Whisper; keep-alive + prewarm
+  calls/                 call transcripts: detection, utterance cutting, live transcript, files
   textproc.py            prompts, guard, dictionary, snippets, fallback cleanup
   pill_model.py          the status pill's look and animation, drawn by both platforms
   audio.py, icons.py, metrics.py, settings.py
   win/                   keyboard hook, clipboard, foreground app, pill (tkinter), dialogs
-  mac/                   event tap, pasteboard, frontmost app, pill (AppKit), permissions
-macos/                   the app bundle's launcher, Info.plist and icon
+  mac/                   event tap, pasteboard, frontmost app, pill (AppKit), permissions, calls
+macos/                   the app bundle's launcher, Info.plist and icon; audiotap.m (call helper)
 install-mac.sh, install-windows.ps1, Install Scribe Plus.bat
 site/                    scribeplus.feetham.us (GitHub Pages)
 .github/workflows/       tests on Linux, Windows and macOS; releases; the site
@@ -235,6 +275,10 @@ tests/                   run with: python -m pytest
 a real install and smoke test of the Mac app on GitHub's Mac machines. If the version in
 `scribe_plus/__init__.py` hasn't been released yet, GitHub then builds the Windows zip and the
 Mac package and publishes the release. The download page always points at the newest one.
+
+**Test builds** come from the `beta` branch. A version like `1.1.0b1` there is published as a
+GitHub pre-release with its own install line; the download page and the normal install line keep
+pointing at the last full release until the version lands on `main`.
 
 Scribe's own files are here too: `scribe_core.py` (shared engine), `scribe_windows.py` and
 `scribe.py` (Scribe's Windows and macOS apps), `install.bat`, `install.sh` and the `bin/`

@@ -21,6 +21,8 @@ import sys
 import threading
 from pathlib import Path
 
+from scribe_plus.calls.detector import DEFAULT_APPS as CALL_APPS
+
 log = logging.getLogger(__name__)
 
 APP_DIR = Path(__file__).resolve().parent.parent
@@ -163,6 +165,7 @@ DEFAULTS: dict = {
         "groq": "whisper-large-v3-turbo",
         "openai": "gpt-4o-mini-transcribe",
         "local": "base.en",
+        "mlx": "mlx-community/whisper-large-v3-turbo",
     },
     "cleanup_engine": "groq",
     "cleanup_models": {
@@ -180,6 +183,9 @@ DEFAULTS: dict = {
     "command_timeout_s": 15.0,
     "app_aware_style": True,
     "command_mode": True,
+    # Command Mode with nothing selected types what you said. Set to true to
+    # have the model write what you ask for instead ("draft a thank-you note").
+    "command_writes_without_selection": False,
     "hands_free": True,
     "quiet_voice_boost": True,
     "trim_silence": True,
@@ -192,6 +198,29 @@ DEFAULTS: dict = {
     "max_record_s": 360,
     "styles": STYLES,
     "app_rules": APP_RULES,
+
+    # Call transcripts (see scribe_plus/calls). Mac only for now.
+    "calls_enabled": True,           # notice calls in the apps below and record them
+    "calls_apps": CALL_APPS,
+    "calls_dir": "",                 # empty: "Scribe Plus/Calls" in your home folder
+    # auto = on this computer, when an on-device engine is installed. Call
+    # audio is never sent to a cloud service unless you pick groq or openai.
+    "calls_engine": "auto",          # auto | mlx | local | groq | openai
+    "calls_models": {
+        "mlx": "mlx-community/whisper-large-v3-turbo",
+        "local": "small.en",
+        "groq": "whisper-large-v3-turbo",
+        "openai": "gpt-4o-mini-transcribe",
+    },
+    "calls_capture": "app",          # app: only the calling app's sound | system: everything
+    "calls_copy_on_end": True,
+    "calls_notify": True,
+    "calls_window_titles": True,     # put the calling app's window title in the transcript
+    "calls_drop_echo": True,
+    "calls_keep_audio": False,       # also save each side as a WAV (for troubleshooting)
+    "calls_max_minutes": 180,
+    "calls_start_delay_s": 1.0,
+    "calls_end_delay_s": 1.5,
 }
 
 LANGUAGES: list[tuple[str, str]] = [

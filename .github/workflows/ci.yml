@@ -1,11 +1,12 @@
 # Tests on Linux, Windows and macOS, plus a real install and smoke test of
-# the Mac app. Runs on every branch except main (main runs it through
-# release.yml, which then publishes a release if the version is new).
+# the Mac app, and a whole recorded call on the Mac. Runs on every branch
+# except main and beta (those run it through release.yml, which then
+# publishes a release if the version is new).
 name: CI
 
 on:
   push:
-    branches-ignore: [main]
+    branches-ignore: [main, beta]
   pull_request:
   workflow_dispatch:
   workflow_call:
@@ -77,13 +78,30 @@ jobs:
           SCRIBE_PLUS_TARBALL: ${{ github.workspace }}/ScribePlus-mac.tar.gz
           SCRIBE_PLUS_ROOT: ${{ runner.temp }}/scribe-plus
           SCRIBE_PLUS_APPS: ${{ runner.temp }}/Applications
-        run: bash install-mac.sh --yes
+          SCRIBE_PLUS_CALLS_MODEL: mlx-community/whisper-tiny
+        run: bash install-mac.sh --yes --calls --local-whisper
       - name: Smoke test through the app's own launcher
         env:
           SCRIBE_PLUS_ROOT: ${{ runner.temp }}/scribe-plus
         run: |
           "$RUNNER_TEMP/Applications/Scribe Plus.app/Contents/MacOS/Scribe Plus" --smoke-test "$RUNNER_TEMP/smoke"
           codesign -dv "$RUNNER_TEMP/Applications/Scribe Plus.app" 2>&1 | grep -E "Identifier|Signature"
+      - name: A whole call, start to finish (stand-in calling app, speech-to-text on the runner)
+        continue-on-error: true
+        env:
+          SCRIBE_PLUS_ROOT: ${{ runner.temp }}/scribe-plus
+        run: |
+          say --file-format=WAVE --data-format=LEI16@22050 -o "$RUNNER_TEMP/speech.wav" \
+            "The lobby panel was installed on Tuesday, and the keys are in the office."
+          caller="$(python -c 'import os, sys; print(os.path.realpath(sys.executable))')"
+          code=0
+          "$RUNNER_TEMP/scribe-plus/venv/bin/python" .github/scripts/mac_call_e2e.py \
+            "$RUNNER_TEMP/scribe-plus/app" "$caller" "$RUNNER_TEMP/speech.wav" \
+            mlx-community/whisper-tiny > "$RUNNER_TEMP/call-e2e.txt" 2>&1 || code=$?
+          tail -c 8000 "$RUNNER_TEMP/call-e2e.txt"
+          .github/scripts/annotate.sh "Whole call test" "$RUNNER_TEMP/call-e2e.txt"
+          exit "$code"
+
       - name: Smoke report in the run summary
         if: always()
         run: |

@@ -53,9 +53,12 @@ class Detected:
 
     @property
     def roots(self) -> list[str]:
+        """Where the app lives: its .app folder, or for a bare program the
+        program itself. Used to pick out its sound."""
         roots: list[str] = []
         for p in self.procs:
-            r = app_root(str(p.get("path") or ""))
+            path = str(p.get("path") or "")
+            r = app_root(path) or path
             if r and r not in roots:
                 roots.append(r)
         return roots

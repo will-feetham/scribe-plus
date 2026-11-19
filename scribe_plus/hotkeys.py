@@ -46,6 +46,7 @@ _MASKABLE = GROUP_WIN | GROUP_ALT
 TAP_MAX_S = 0.30            # a press shorter than this is a tap
 DOUBLE_TAP_WINDOW_S = 0.40  # max gap between the two taps of a double-tap
 MIN_HOLD_S = 0.25           # shorter holds are treated as accidental
+COMMAND_GRACE_S = 0.6       # the Command Mode key counts only this soon after the hotkey
 STALE_RELEASE_S = 10.0      # give up waiting for a release after this long
 
 
@@ -234,7 +235,11 @@ class HotkeyMachine:
             return res
 
         if vk in self.spec.command_group and self.state == HOLDING:
-            if self.command_mode and not self._command_seen:
+            # Command Mode is chosen at the start. The same key pressed later,
+            # in the middle of a dictation, is a slip of the hand, not a request
+            # to turn everything said so far into an instruction.
+            if (self.command_mode and not self._command_seen
+                    and t - self._t_down <= COMMAND_GRACE_S):
                 self._command_seen = True
                 res.actions.append(Action("command"))
                 if vk in _MASKABLE and self.spec.maskable:

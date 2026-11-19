@@ -1,0 +1,11 @@
+# On-device speech-to-text for call transcripts on an Apple silicon Mac.
+# "install-mac.sh --calls" installs these, then mlx-whisper itself without
+# its dependencies: it lists PyTorch, which only its model-conversion tool
+# uses. These are the ones its transcriber needs.
+mlx>=0.11
+numba
+scipy
+tqdm
+more-itertools
+tiktoken
+huggingface_hub

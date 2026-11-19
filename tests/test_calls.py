@@ -201,6 +201,16 @@ def feed_realtime(rec, speaker, x, rate, t_start, block_s=0.1):
         rec.feed(speaker, piece, rate, arrived=rec.t0 + t_start + (i + len(piece)) / rate)
 
 
+def settle(rec, seconds=5.0):
+    """Wait until the recorder has transcribed everything it was given."""
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        if rec.pending() == 0:
+            return True
+        time.sleep(0.01)
+    return False
+
+
 def test_two_sided_call_end_to_end(tmp_path):
     heard = []
 
@@ -255,24 +265,29 @@ def test_a_failing_speech_model_is_reported_once_and_does_not_stop_the_call(tmp_
         return "Second sentence."
 
     rec, tr, files = make_recorder(tmp_path, transcribe, on_error=errors.append)
-    feed_realtime(rec, "Me", np.concatenate([quiet(0.5), speech(1.0), quiet(1.5), speech(1.0), quiet(1.5)]), RATE, 0.0)
+    feed_realtime(rec, "Me", np.concatenate([quiet(0.5), speech(1.0), quiet(1.5)]), RATE, 0.0)
+    assert settle(rec) and len(errors) == 1
+    feed_realtime(rec, "Me", np.concatenate([speech(1.0), quiet(1.5)]), RATE, 3.0)
     assert rec.finish(timeout=5.0)
     assert len(errors) == 1 and [ln.text for ln in tr.lines()] == ["Second sentence."]
     assert "could not be transcribed (model not installed)" in files.latest.read_text(encoding="utf-8")
 
 
 def test_a_slow_model_catches_up_in_batches_and_a_late_finish_updates_the_file(tmp_path):
-    release, sizes = threading.Event(), []
+    release, started, sizes = threading.Event(), threading.Event(), []
 
     def transcribe(samples, speaker):
         sizes.append(len(samples) / RATE)
+        started.set()
         release.wait(5.0)
         return f"part {len(sizes)}"
 
     rec, tr, files = make_recorder(tmp_path, transcribe)
-    x = np.concatenate([quiet(0.5)] + [np.concatenate([speech(1.0), quiet(1.2)]) for _ in range(4)])
-    feed_realtime(rec, "Me", x, RATE, 0.0)
-    assert rec.finish(timeout=0.3) is False             # the model is stuck on the first one
+    feed_realtime(rec, "Me", np.concatenate([quiet(0.5), speech(1.0), quiet(1.2)]), RATE, 0.0)
+    assert started.wait(5.0)                            # the model is now busy with the first one
+    rest = np.concatenate([np.concatenate([speech(1.0), quiet(1.2)]) for _ in range(3)])
+    feed_realtime(rec, "Me", rest, RATE, 2.7)
+    assert rec.finish(timeout=0.3) is False             # ... and still is at hang-up
     assert "still being transcribed" in files.latest.read_text(encoding="utf-8")
     release.set()
     deadline = time.time() + 5
@@ -350,3 +365,210 @@ def test_unwatched_and_disabled_apps_do_not_start_calls():
     d = CallDetector(apps)
     d.update([chrome], now=0.0)
     assert d.poll(1.5)[1].name == "Google Meet (Chrome)"
+
+
+# -- the manager: a whole call with a fake OS ------------------------------------------------
+
+import httpx  # noqa: E402
+
+from scribe_plus import engines as E  # noqa: E402
+from scribe_plus.calls.manager import CallManager  # noqa: E402
+from scribe_plus.settings import SettingsStore  # noqa: E402
+
+
+class FakeSource:
+    """Stands in for a capture helper: plays canned audio into the call."""
+
+    def __init__(self, on_audio, audio=None, rate=RATE, fail=False):
+        self.on_audio, self.audio, self.rate, self.fail = on_audio, audio, rate, fail
+        self.started = self.stopped = False
+        self.last_error = ""
+
+    def start(self):
+        if self.fail:
+            raise RuntimeError("helper missing")
+        self.started = True
+        if self.audio is not None:
+            now = time.monotonic()
+            block = self.rate // 10
+            for i in range(0, len(self.audio), block):
+                piece = self.audio[i:i + block]
+                self.on_audio(piece, self.rate, now + (i + len(piece)) / self.rate)
+
+    def stop(self, timeout=1.5):
+        self.stopped = True
+
+
+class FakeCallPlatform:
+    def __init__(self, them=None, ok=True):
+        self.them, self.ok = them, ok
+        self.on_procs = None
+        self.taps = []
+
+    def available(self):
+        return (True, "") if self.ok else (False, "call recording needs macOS 14.2 or newer")
+
+    def start_watch(self, on_procs):
+        self.on_procs = on_procs
+
+    def stop_watch(self):
+        pass
+
+    def tap_source(self, detected, system, on_audio, on_event=None):
+        src = FakeSource(on_audio, self.them, rate=48000)
+        self.taps.append((detected, system, src))
+        return src
+
+    def window_titles(self, bundles):
+        return ["Acme Lofts: Lobby panel"]
+
+
+def make_manager(tmp_path, monkeypatch, *, them=None, me=None, engine="groq", stt="Hello there."):
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_test")
+    st = SettingsStore(tmp_path / "settings.json")
+    st.set("calls_dir", str(tmp_path / "Calls"))
+    st.set("calls_engine", engine)
+    requests = []
+
+    def api(request):
+        requests.append(request.url.path)
+        reply = stt(len(requests)) if callable(stt) else stt
+        return httpx.Response(200, json={"text": reply})
+
+    notes, copied, mics = [], [], []
+
+    def mic_factory(device, on_audio, app_dir=None):
+        src = FakeSource(on_audio, me)
+        mics.append(src)
+        return src
+
+    platform = FakeCallPlatform(them=them)
+    mgr = CallManager(st, platform, notify=lambda t, m: notes.append((t, m)), copy=copied.append,
+                      pool=E.HttpPool(transport=httpx.MockTransport(api)), mic_factory=mic_factory,
+                      app_dir=tmp_path)
+    mgr.detector.start_delay = mgr.detector.end_delay = 0.0
+    return mgr, st, platform, notes, copied, mics, requests
+
+
+def wait_for(cond, seconds=5.0):
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        if cond():
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def test_a_detected_call_is_recorded_saved_and_copied(tmp_path, monkeypatch):
+    monkeypatch.setattr("scribe_plus.calls.manager.GROQ_MIN_INTERVAL_S", 0.0)
+    them = np.repeat(np.concatenate([quiet(2.5), speech(1.5), quiet(1.2)]), 3)
+    me = np.concatenate([quiet(0.3), speech(1.5), quiet(3.0)])
+    # The other side's audio is transcribed first here, but they spoke second:
+    # the transcript goes by when things were said, not when they were transcribed.
+    replies = iter(["Hey Will, the panel is installed.", "Hi, it's Will from ButterflyMX."])
+    mgr, st, platform, notes, copied, mics, requests = make_manager(
+        tmp_path, monkeypatch, them=them, me=me, stt=lambda n: next(replies))
+    mgr._on_procs([DIALER])
+    mgr._tick(time.monotonic())
+    assert wait_for(lambda: mgr.recording)
+    assert mgr.status()["name"] == "Groove OmniDialer"
+    detected, system, tap = platform.taps[0]
+    assert system is False and detected.bundles == ["com.electron.dialer"]      # only the dialer's sound
+    assert wait_for(lambda: mgr.status()["lines"] == 2)
+    mgr._on_procs([])                                                           # hung up
+    mgr._tick(time.monotonic())
+    assert wait_for(lambda: not mgr.recording and copied)
+    assert tap.stopped and mics[0].stopped
+    text = (tmp_path / "Calls" / "latest.md").read_text(encoding="utf-8")
+    assert copied == [text]
+    assert "# Call: Groove OmniDialer" in text and "Status: ended" in text
+    assert "Window: Acme Lofts: Lobby panel" in text
+    assert "Me: Hi, it's Will from ButterflyMX." in text and "Them: Hey Will, the panel is installed." in text
+    assert text.index("Me: Hi") < text.index("Them: Hey")
+    assert mgr.last_file().name.endswith("Groove OmniDialer.md") and mgr.last_file().read_text(encoding="utf-8") == text
+    assert [t for t, _m in notes] == ["Recording a call", "Call transcript ready"]
+    assert "2 lines saved and copied" in notes[1][1]
+    assert len(requests) == 2
+
+
+def test_stopping_from_the_menu_does_not_restart_while_the_app_keeps_the_mic(tmp_path, monkeypatch):
+    mgr, st, platform, notes, copied, mics, _req = make_manager(tmp_path, monkeypatch)
+    mgr._on_procs([DIALER])
+    mgr._tick(time.monotonic())
+    assert wait_for(lambda: mgr.recording)
+    mgr.stop()
+    assert wait_for(lambda: not mgr.recording and not mgr._busy)
+    for _ in range(5):
+        mgr._tick(time.monotonic())
+        time.sleep(0.02)
+    assert not mgr.recording and len(platform.taps) == 1
+    mgr._on_procs([])                                    # the app finally lets go ...
+    mgr._tick(time.monotonic())
+    mgr._on_procs([DIALER])                              # ... and a new call starts
+    mgr._tick(time.monotonic())
+    assert wait_for(lambda: mgr.recording) and len(platform.taps) == 2
+
+
+def test_manual_recording_uses_all_sound(tmp_path, monkeypatch):
+    mgr, st, platform, notes, copied, mics, _req = make_manager(tmp_path, monkeypatch)
+    mgr.start_manual()
+    assert wait_for(lambda: mgr.recording)
+    detected, system, _tap = platform.taps[0]
+    assert detected is None and system is True and mgr.status()["manual"]
+    mgr.stop()
+    assert wait_for(lambda: not mgr.recording)
+    assert notes[-1][0] == "Call ended, nothing transcribed"
+    assert not (tmp_path / "Calls" / "latest.md").exists() or "was not recorded" in (tmp_path / "Calls" / "latest.md").read_text()
+
+
+def test_calls_never_go_to_the_cloud_unless_chosen(tmp_path, monkeypatch):
+    # "auto" means on this computer. With no on-device engine installed the call
+    # is not recorded at all, rather than quietly sent to Groq.
+    mgr, st, platform, notes, copied, mics, requests = make_manager(tmp_path, monkeypatch, engine="auto")
+    monkeypatch.setattr(E.MLX_WHISPER, "available", lambda: False)
+    monkeypatch.setattr(E.LOCAL_WHISPER, "available", lambda: False)
+    assert mgr.resolve_engine()[0] == ""
+    mgr._on_procs([DIALER])
+    mgr._tick(time.monotonic())
+    assert wait_for(lambda: notes)
+    time.sleep(0.1)
+    assert not mgr.recording and platform.taps == [] and requests == []
+    assert notes[0][0] == "Call not recorded" and "isn't installed" in notes[0][1]
+    for _ in range(5):                                   # and it doesn't nag on every tick
+        mgr._tick(time.monotonic())
+    time.sleep(0.1)
+    assert len(notes) == 1
+    monkeypatch.setattr(E.MLX_WHISPER, "available", lambda: True)
+    assert mgr.resolve_engine()[:2] == ("mlx", "mlx-community/whisper-large-v3-turbo")
+
+
+def test_detection_can_be_turned_off_and_silence_is_explained(tmp_path, monkeypatch):
+    silent_them = np.zeros(48000 * 3, dtype=np.float32)
+    mgr, st, platform, notes, copied, mics, _req = make_manager(
+        tmp_path, monkeypatch, them=silent_them, me=quiet(3.0))
+    st.set("calls_enabled", False)
+    mgr._on_procs([DIALER])
+    mgr._tick(time.monotonic())
+    time.sleep(0.1)
+    assert not mgr.recording
+    st.set("calls_enabled", True)
+    mgr._on_procs([])
+    mgr._tick(time.monotonic())
+    mgr._on_procs([DIALER])
+    mgr._tick(time.monotonic())
+    assert wait_for(lambda: mgr.recording)
+    mgr._on_procs([])
+    mgr._tick(time.monotonic())
+    assert wait_for(lambda: not mgr.recording and len(notes) >= 2)
+    assert notes[-1][0] == "Call ended, nothing transcribed"
+    assert "System Audio Recording" in notes[-1][1]      # the likely cause, in plain words
+    assert "System Audio Recording" in mgr.last_file().read_text(encoding="utf-8")
+    assert copied == []
+
+
+def test_settings_file_gets_the_call_defaults(tmp_path):
+    st = SettingsStore(tmp_path / "settings.json")
+    assert st.get("calls_engine") == "auto" and st.get("calls_copy_on_end") is True
+    names = [a["name"] for a in st.get("calls_apps")]
+    assert names[0] == "Groove OmniDialer" and "Zoom" in names
+    assert [a["name"] for a in st.get("calls_apps") if not a["enabled"]] == ["Google Meet (Chrome)", "Slack huddles"]
