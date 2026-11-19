@@ -9,6 +9,7 @@ window toolkit, the keyboard hook, the tray icon, dialogs and file opening.
 from __future__ import annotations
 
 import logging
+import platform as host
 import sys
 import threading
 from pathlib import Path
@@ -44,6 +45,35 @@ CALL_ENGINE_CHOICES = [
     ("Groq (cloud: call audio leaves this computer)", "groq"),
     ("OpenAI (cloud: call audio leaves this computer)", "openai"),
 ]
+
+
+def call_engine_menu(installed: dict, apple_silicon: bool) -> list[tuple[str, str]]:
+    """The "Transcribe with" choices for calls, as (label, key).
+
+    Only what is useful on this computer is listed: MLX only where it can run
+    (Apple silicon), and the slower processor engine only when it is installed
+    or is this computer's only on-device option. "Automatic" says which engine
+    it is using, so nobody has to wonder whether a "not installed" line matters.
+    """
+    main = "mlx" if apple_silicon else "local"
+    using = "mlx" if installed.get("mlx") else "local" if installed.get("local") else ""
+    automatic = {"mlx": "Automatic: on this Mac (MLX Whisper)",
+                 "local": "Automatic: on this computer (Whisper on the processor)",
+                 "": "Automatic: on this computer (not installed)"}[using]
+    out: list[tuple[str, str]] = []
+    for label, key in CALL_ENGINE_CHOICES:
+        if key == "auto":
+            label = automatic
+        elif key == "mlx" and not apple_silicon:
+            continue
+        elif key == "local" and not installed.get("local") and main != "local":
+            continue
+        elif key in ("mlx", "local") and not installed.get(key):
+            label += " (not installed)"
+        out.append((label, key))
+    return out
+
+
 FEATURE_TOGGLES = [
     ("App-aware style", "app_aware_style"),
     ("Command Mode", "command_mode"),
@@ -321,11 +351,10 @@ class TrayApp:
                      checked=self._is_value("calls_capture", "system"), radio=True)]
         installed = {"local": self.engines.LOCAL_WHISPER.available(),
                      "mlx": self.engines.MLX_WHISPER.available()}
-        call_engines = [I(label + ("" if installed.get(key, True) else " (not installed)"),
-                          self._set_call_engine(key), checked=self._is_value("calls_engine", key),
-                          radio=True)
-                        for label, key in CALL_ENGINE_CHOICES
-                        if key != "mlx" or sys.platform == "darwin"]
+        apple_silicon = sys.platform == "darwin" and host.machine() == "arm64"
+        call_engines = [I(label, self._set_call_engine(key),
+                          checked=self._is_value("calls_engine", key), radio=True)
+                        for label, key in call_engine_menu(installed, apple_silicon)]
         return [I("Calls", M(
             I(status, None, enabled=False),
             toggle,

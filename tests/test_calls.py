@@ -904,3 +904,22 @@ def test_settings_file_gets_the_call_defaults(tmp_path):
     names = [a["name"] for a in st.get("calls_apps")]
     assert names[0] == "Groove OmniDialer" and "Zoom" in names
     assert [a["name"] for a in st.get("calls_apps") if not a["enabled"]] == ["Google Meet (Chrome)", "Slack huddles"]
+
+
+def test_the_engine_menu_lists_only_what_is_useful_on_this_computer():
+    from scribe_plus.tray import call_engine_menu
+    # Apple silicon, set up for calls: the spare processor engine is not shown at all.
+    menu = call_engine_menu({"mlx": True, "local": False}, apple_silicon=True)
+    assert [key for _label, key in menu] == ["auto", "mlx", "groq", "openai"]
+    assert menu[0][0] == "Automatic: on this Mac (MLX Whisper)" and "not installed" not in str(menu)
+    # Intel Mac or Windows: MLX can't run there, so it is not offered.
+    menu = call_engine_menu({"mlx": False, "local": True}, apple_silicon=False)
+    assert [key for _label, key in menu] == ["auto", "local", "groq", "openai"]
+    assert menu[0][0] == "Automatic: on this computer (Whisper on the processor)"
+    # Apple silicon where the fast engine failed to install: that is said, once, where it matters.
+    menu = call_engine_menu({"mlx": False, "local": False}, apple_silicon=True)
+    assert [label for label, _key in menu][:2] == ["Automatic: on this computer (not installed)",
+                                                   "On this Mac: MLX Whisper (not installed)"]
+    menu = call_engine_menu({"mlx": False, "local": True}, apple_silicon=True)
+    assert [key for _label, key in menu] == ["auto", "mlx", "local", "groq", "openai"]
+    assert menu[1][0].endswith("(not installed)") and "not installed" not in menu[2][0]
