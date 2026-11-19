@@ -95,6 +95,7 @@ class CallManager:
         self._want_stop = False
         self._last_ended: _Call | None = None
         self._wrapping: list[threading.Thread] = []   # transcripts still being finished
+        self._wrap_count = 0                          # ... and how many (counted before each starts)
         self._awake = 0
         self._lock = threading.RLock()
         self._quit = threading.Event()
@@ -284,7 +285,7 @@ class CallManager:
         """Nothing being recorded, started, stopped or still written up."""
         with self._lock:
             return self._call is None and not self._busy and not self._want_manual \
-                and not any(t.is_alive() for t in self._wrapping)
+                and self._wrap_count == 0
 
     def status(self) -> dict:
         call = self._call
@@ -534,6 +535,7 @@ class CallManager:
                 if call.files.path.exists():
                     self.last_path = call.files.path
                 self._wrapping = [t for t in self._wrapping if t.is_alive()] + [wrap]
+                self._wrap_count += 1
                 self._busy = False
             wrap.start()
             self._changed()
@@ -551,6 +553,8 @@ class CallManager:
             if last:
                 self._platform_hook("call_ended")
             self._changed()
+            with self._lock:
+                self._wrap_count -= 1       # last: "idle" means all of the above is done
 
     def _finish_call(self, call: _Call, reason: str, t_end: float) -> None:
         rec, tr = call.recorder, call.recorder.transcript

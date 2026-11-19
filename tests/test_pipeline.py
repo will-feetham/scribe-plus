@@ -1,5 +1,6 @@
 """End-to-end dictation flow with a fake OS, fake mic and mocked APIs."""
 import csv
+import io
 import json
 import threading
 import time
@@ -142,13 +143,16 @@ def dictate(engine, platform, mode="dictate", hold=0.05):
 
 
 def read_metrics(tmp):
+    """The rows of metrics.csv, once the (background) writer has finished one.
+    The file is read in one go: read line by line while it is still being
+    written, the header can be mistaken for a row."""
     deadline = time.time() + 2
+    p = tmp / "metrics.csv"
     while time.time() < deadline:
-        p = tmp / "metrics.csv"
         if p.exists():
-            rows = list(csv.DictReader(p.open(encoding="utf-8-sig")))
-            if rows:
-                return rows
+            text = p.read_text(encoding="utf-8-sig")
+            if text.count("\n") >= 2 and text.endswith("\n"):
+                return list(csv.DictReader(io.StringIO(text, newline="")))
         time.sleep(0.02)
     return []
 
