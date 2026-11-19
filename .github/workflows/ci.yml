@@ -48,12 +48,17 @@ jobs:
           python -m pytest -q
       - name: Build Scribe Plus.app and the release tarball
         run: |
-          macos/build-app.sh dist
+          macos/build-app.sh dist > build.log 2>&1 || { cat build.log; .github/scripts/annotate.sh "Mac build failed" build.log; exit 1; }
+          cat build.log
           mkdir -p stage
           git archive --prefix=ScribePlus/ HEAD | tar -x -C stage
           cp -R "dist/Scribe Plus.app" stage/ScribePlus/macos/
+          cp dist/audiotap stage/ScribePlus/macos/audiotap
           tar -czf ScribePlus-mac.tar.gz -C stage ScribePlus
           ls -la ScribePlus-mac.tar.gz
+      - name: Call-recording helper on this runner (information only)
+        run: .github/scripts/mac_audio_probe.sh dist/audiotap
+
       - name: Install with the real installer (CI mode)
         env:
           SCRIBE_PLUS_CI: "1"
