@@ -51,12 +51,19 @@ def test_speech_model_echoes_are_removed():
             "Vocabulary. Vocabulary. Vocabulary. Vocabulary.")
     assert T.strip_prompt_echo(said, hint) == \
         "So I tried to make a note, and it presented the email rather than transcribing."
-    assert T.strip_prompt_echo("Thank you. Thank you. Thank you.", "") == ""
+    assert T.strip_prompt_echo("Thank you. Thank you. Thank you. Thank you.", "") == ""
+    # three times is enough when the fragment comes straight from the hint
+    assert T.strip_prompt_echo("Send it over. Mafi. Mafi. Mafi.", hint) == "Send it over."
     # real speech is left alone
     for text in ("Claude Code.", "Email Mafi and Claude about the Feetham account.",
-                 "No. No. I said Tuesday.", "Yes, yes, yes.", "Go. Go. Go to the next one, please."):
+                 "No. No. I said Tuesday.", "Yes, yes, yes.", "Go. Go. Go to the next one, please.",
+                 "No. No. No.", "Go! Go! Go!", "Bye. Bye. Bye.",
+                 "Set the DNS server to 8.8.8.8", "Use 1.1.1.1.", "Call me at 555.555.5555",
+                 "The version is 2.2.2"):
         assert T.strip_prompt_echo(text, hint) == text
     assert T.strip_prompt_echo("", hint) == ""
+    # a one-word dictionary: saying that word is not an echo
+    assert T.strip_prompt_echo("GrowFlow.", "GrowFlow.") == "GrowFlow."
 
 
 def test_cleanup_messages_carry_style_glossary_and_triggers():

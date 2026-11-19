@@ -219,6 +219,21 @@ static NSString *deviceUID(AudioObjectID dev) {
     return stringProperty(dev, kAudioDevicePropertyDeviceUID);
 }
 
+/* The rate the audio actually arrives at. It is read from the device the
+   callbacks run on: next to an output device, the tap's audio is converted
+   to that device's rate, whatever the tap's own format says. */
+API_AVAILABLE(macos(14.2))
+static uint32_t readingRate(AudioObjectID device, AudioObjectID tap) {
+    Float64 rate = 0;
+    if (device != kAudioObjectUnknown) {
+        AudioObjectPropertyAddress a = addr(kAudioDevicePropertyNominalSampleRate);
+        UInt32 size = sizeof rate;
+        if (AudioObjectGetPropertyData(device, &a, 0, NULL, &size, &rate) != noErr) rate = 0;
+    }
+    if (rate <= 0) rate = tapFormat(tap).mSampleRate;
+    return rate > 0 ? (uint32_t)(rate + 0.5) : 48000;
+}
+
 static AudioObjectID defaultOutputDevice(void) {
     AudioObjectPropertyAddress a = addr(kAudioHardwarePropertyDefaultSystemOutputDevice);
     AudioObjectID dev = kAudioObjectUnknown;
@@ -248,9 +263,10 @@ static void teardown(Rig *r) {
 /* Wraps the tap in a private "aggregate device" (the only way to read a tap)
    and starts reading. style 0: the tap alone. style 1: the tap next to the
    current output device, which some Macs need for a clock. Returns YES once
-   audio callbacks are arriving. */
+   audio is arriving (silence counts: it arrives as zeros). With strict NO,
+   callbacks that carry no audio yet are enough. */
 API_AVAILABLE(macos(14.2))
-static BOOL startReading(Rig *r, NSString *tapUID, int style) {
+static BOOL startReading(Rig *r, NSString *tapUID, int style, BOOL strict) {
     NSString *uid = [NSUUID UUID].UUIDString;
     NSMutableDictionary *desc = [@{
         @kAudioAggregateDeviceNameKey: @"Scribe Plus call recording",
@@ -275,7 +291,10 @@ static BOOL startReading(Rig *r, NSString *tapUID, int style) {
 
     if (style == 0) {
         AudioObjectPropertyAddress a = addr(kAudioAggregateDevicePropertyTapList);
-        CFArrayRef taps = (__bridge CFArrayRef)@[ tapUID ];
+        /* Held in a variable for the whole block, so the list is still alive
+           when Core Audio reads it. */
+        NS_VALID_UNTIL_END_OF_SCOPE NSArray *tapList = @[ tapUID ];
+        CFArrayRef taps = (__bridge CFArrayRef)tapList;
         err = AudioObjectSetPropertyData(r->device, &a, 0, NULL, sizeof taps, &taps);
         if (err != noErr) { fail(@"add_tap", err, label); teardown(r); return NO; }
         usleep(150000);  /* the device rebuilds its streams after the tap is added */
@@ -283,6 +302,7 @@ static BOOL startReading(Rig *r, NSString *tapUID, int style) {
 
     atomic_store(&g_callbacks, 0);
     atomic_store(&g_layout, 0);
+    uint64_t before = atomic_load(&g_written);
     err = AudioDeviceCreateIOProcIDWithBlock(&r->proc, r->device, NULL,
         ^(const AudioTimeStamp *now, const AudioBufferList *in, const AudioTimeStamp *inTime,
           AudioBufferList *out, const AudioTimeStamp *outTime) {
@@ -308,10 +328,16 @@ static BOOL startReading(Rig *r, NSString *tapUID, int style) {
     if (err != noErr) { fail(@"start", err, label); teardown(r); return NO; }
 
     for (int i = 0; i < 100 && !atomic_load(&g_stop); i++) {   /* up to 2 s */
-        if (atomic_load(&g_callbacks) > 2) return YES;
+        if (atomic_load(&g_written) > before) return YES;
+        if (!strict && atomic_load(&g_callbacks) > 2) return YES;
         usleep(20000);
     }
-    fail(@"no_audio_callbacks", 0, label);
+    if (strict) {
+        emit(stderr, @{ @"event": @"no_audio", @"device_style": label,
+                        @"callbacks": @(atomic_load(&g_callbacks)) });
+    } else {
+        fail(@"no_audio_callbacks", 0, label);
+    }
     teardown(r);
     return NO;
 }
@@ -352,9 +378,15 @@ static int runCapture(NSArray<NSString *> *bundles, NSArray<NSString *> *paths,
     NSString *tapUID = stringProperty(rig.tap, kAudioTapPropertyUID);
     if (!tapUID.length) tapUID = desc.UUID.UUIDString;
 
+    /* First either way of reading that delivers audio; failing that, either
+       way that at least runs (the audio may follow, and the loop below keeps
+       trying). */
     int style = -1;
-    for (int s = 0; s < 2 && style < 0 && !atomic_load(&g_stop); s++) {
-        if (startReading(&rig, tapUID, s)) style = s;
+    BOOL flowing = YES;
+    for (int pass = 0; pass < 2 && style < 0; pass++) {
+        for (int s = 0; s < 2 && style < 0 && !atomic_load(&g_stop); s++) {
+            if (startReading(&rig, tapUID, s, pass == 0)) { style = s; flowing = pass == 0; }
+        }
     }
     if (style < 0) {
         AudioHardwareDestroyProcessTap(rig.tap);
@@ -362,10 +394,11 @@ static int runCapture(NSArray<NSString *> *bundles, NSArray<NSString *> *paths,
     }
 
     AudioStreamBasicDescription fmt = tapFormat(rig.tap);
-    atomic_store(&g_rate, (uint32_t)(fmt.mSampleRate > 0 ? fmt.mSampleRate : 48000));
+    atomic_store(&g_rate, readingRate(rig.device, rig.tap));
     uint32_t layout = atomic_load(&g_layout);
     emit(stderr, @{ @"event": @"started", @"mode": app ? @"app" : @"system",
                     @"matched": matched, @"rate": @(atomic_load(&g_rate)),
+                    @"tap_rate": @((uint32_t)fmt.mSampleRate), @"audio_flowing": @(flowing),
                     @"format_channels": @(fmt.mChannelsPerFrame),
                     @"float": @((fmt.mFormatFlags & kAudioFormatFlagIsFloat) != 0),
                     @"device_style": style == 0 ? @"tap only" : @"tap with output device",
@@ -410,8 +443,7 @@ static int runCapture(NSArray<NSString *> *bundles, NSArray<NSString *> *paths,
                or when a headset switches to its call mode. */
             if ([now timeIntervalSinceDate:lastFormat] >= 0.25) {
                 lastFormat = now;
-                AudioStreamBasicDescription f = tapFormat(rig.tap);
-                uint32_t rate = (uint32_t)f.mSampleRate;
+                uint32_t rate = readingRate(rig.device, rig.tap);
                 if (rate > 0 && rate != atomic_load(&g_rate)) {
                     atomic_store(&g_rate, rate);
                     emit(stderr, @{ @"event": @"rate", @"rate": @(rate) });
@@ -426,7 +458,9 @@ static int runCapture(NSArray<NSString *> *bundles, NSArray<NSString *> *paths,
                 restarts++;
                 emit(stderr, @{ @"event": @"restart", @"attempt": @(restarts) });
                 teardown(&rig);
-                BOOL again = startReading(&rig, tapUID, style) || startReading(&rig, tapUID, 1 - style);
+                BOOL again = startReading(&rig, tapUID, style, YES)
+                    || startReading(&rig, tapUID, 1 - style, YES)
+                    || startReading(&rig, tapUID, style, NO);
                 if (!again) { fail(@"restart", 0, @"the audio did not come back"); break; }
                 readPos = lastWritten = atomic_load(&g_written);
                 lastAudio = [NSDate date];

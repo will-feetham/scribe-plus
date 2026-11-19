@@ -84,16 +84,40 @@ class Transcript:
                 i -= 1
             self._lines.insert(i, line)
 
-    def is_echo(self, line: Line, window_s: float = 2.5, threshold: float = 0.75) -> bool:
+    @staticmethod
+    def _echoes(heard: Line, original: Line, threshold: float) -> bool:
+        """Is `heard` the microphone picking up `original` from the speakers?
+        An echo is the same words at the same moment. The same words a moment
+        later is someone reading them back, which is kept."""
+        if len(_words(heard.text)) < 3:
+            return False
+        end = original.end or original.t
+        if not (original.t - 1.0 <= heard.t < end - 0.2):
+            return False
+        return similar(heard.text, original.text) >= threshold
+
+    def is_echo(self, line: Line, threshold: float = 0.75) -> bool:
         """On speakers the microphone also hears the other side, so their words
         come back a second time as "Me". True when `line` repeats something
-        the other speaker said at the same moment."""
-        if len(_words(line.text)) < 3:
-            return False
+        the other speaker was saying at that moment."""
         with self._lock:
-            others = [o for o in self._lines if o.speaker != line.speaker
-                      and o.t - window_s <= line.t <= (o.end or o.t) + window_s]
-        return any(similar(line.text, o.text) >= threshold for o in others)
+            others = [o for o in self._lines if o.speaker != line.speaker]
+        return any(self._echoes(line, o, threshold) for o in others)
+
+    def echoes_of(self, line: Line, threshold: float = 0.75) -> list[Line]:
+        """Lines already in the transcript that are an echo of `line` (for when
+        the microphone's copy was transcribed first)."""
+        with self._lock:
+            others = [o for o in self._lines if o.speaker != line.speaker]
+        return [o for o in others if self._echoes(o, line, threshold)]
+
+    def remove(self, line: Line) -> bool:
+        with self._lock:
+            for i, existing in enumerate(self._lines):
+                if existing is line:
+                    del self._lines[i]
+                    return True
+        return False
 
     def lines(self) -> list[Line]:
         with self._lock:
@@ -139,33 +163,64 @@ class Transcript:
 
 def write_atomic(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp")
+    tmp = path.with_name(f".{path.name}.{os.getpid()}-{threading.get_ident()}.tmp")
     tmp.write_text(text, encoding="utf-8")
     os.replace(tmp, path)
 
 
+_shared = threading.Lock()
+_reserved: set[Path] = set()                    # names promised to calls with no file yet
+_newest: dict[Path, "TranscriptFiles"] = {}     # per folder: whose text latest.md holds
+
+
 class TranscriptFiles:
-    """Keeps a call's own file and latest.md in step with the transcript."""
+    """Keeps a call's own file and latest.md in step with the transcript.
+
+    Nothing is written until write() is called, so a "call" in which nothing
+    was said leaves no file behind and does not disturb latest.md. latest.md
+    belongs to the newest call that has written anything: a slow transcript
+    still finishing an older call can't take it back."""
 
     def __init__(self, folder: Path, transcript: Transcript) -> None:
         self.folder = Path(folder)
         self.transcript = transcript
-        self.path = self._free_path(self.folder / transcript.file_name())
         self.latest = self.folder / LATEST_NAME
+        self.error = ""
         self._lock = threading.Lock()
+        with _shared:
+            self.path = self._free_path(self.folder / transcript.file_name())
+            _reserved.add(self.path)
 
     @staticmethod
     def _free_path(path: Path) -> Path:
-        if not path.exists():
-            return path
-        for n in range(2, 100):
-            alt = path.with_name(f"{path.stem} ({n}){path.suffix}")
-            if not alt.exists():
-                return alt
-        return path
+        candidate = path
+        for n in range(2, 200):
+            if not candidate.exists() and candidate not in _reserved:
+                return candidate
+            candidate = path.with_name(f"{path.stem} ({n}){path.suffix}")
+        return candidate
+
+    def release(self) -> None:
+        """The call ended with nothing to write: its file name is free again."""
+        with _shared:
+            _reserved.discard(self.path)
 
     def write(self) -> None:
         with self._lock:
             text = self.transcript.render()
-            write_atomic(self.path, text)
-            write_atomic(self.latest, text)
+            try:
+                write_atomic(self.path, text)
+                with _shared:
+                    newest = _newest.get(self.folder)
+                    mine = newest is None or newest is self \
+                        or newest.transcript.started <= self.transcript.started
+                    if mine:
+                        _newest[self.folder] = self
+                if mine:
+                    write_atomic(self.latest, text)
+                with _shared:
+                    _reserved.discard(self.path)      # the file itself holds the name now
+                self.error = ""
+            except OSError as exc:
+                self.error = str(exc)
+                raise

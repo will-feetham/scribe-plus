@@ -35,6 +35,8 @@ from scribe_plus.calls.transcript import Line, Transcript, TranscriptFiles
 log = logging.getLogger(__name__)
 
 GAP_S = 1.0             # a hole this long in a stream counts as silence
+AHEAD_S = 0.3           # audio arriving this far ahead of the clock pulls the clock back
+RETRY_AFTER_S = 1.0     # a failed speech-to-text request is tried once more
 BATCH_MAX_S = 25.0      # most speech sent to the speech model in one go
 BATCH_PAUSE_S = 0.3     # silence put between utterances joined into one request
 TARGET_PEAK = 0.7       # quiet speech is raised to about -3 dBFS
@@ -50,8 +52,11 @@ _BRACKETED = re.compile(r"^\s*[\[(][^\])]*[\])]\s*$")
 
 
 def is_noise_text(text: str) -> bool:
-    norm = "".join(ch for ch in text.lower() if ch.isalpha())
-    return len(norm) < 2 or norm in _NOISE_TEXT or bool(_BRACKETED.match(text))
+    """Numbers count as content: "42." and "555-0199" are answers, not noise."""
+    norm = "".join(ch for ch in text.lower() if ch.isalnum())
+    if not norm or bool(_BRACKETED.match(text)):
+        return True
+    return norm in _NOISE_TEXT or (len(norm) < 2 and norm.isalpha())
 
 
 def normalize(samples: np.ndarray) -> np.ndarray:
@@ -84,6 +89,7 @@ class Channel:
         self.seconds = 0.0
         self.peak = 0.0
         self.utterances = 0
+        self.last_arrival: float | None = None
         self._lock = threading.Lock()
         self._wav: wave.Wave_write | None = None
         if audio_path is not None:
@@ -99,7 +105,11 @@ class Channel:
 
     def push(self, samples: np.ndarray, rate: int, arrived: float | None = None) -> list[_Job]:
         arrived = time.monotonic() if arrived is None else arrived
+        # One bad sample (NaN) would otherwise poison the filter and the noise
+        # floor, and that side of the call would go deaf.
+        samples = np.nan_to_num(np.asarray(samples, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
         with self._lock:
+            self.last_arrival = arrived
             if self._resampler is None or self._resampler.rate_in != int(rate):
                 self._resampler = Resampler(int(rate))
             x = self._resampler.process(samples)
@@ -111,11 +121,15 @@ class Channel:
             if self._offset is None:
                 self._offset = now_call - dur
             else:
-                expected = self._offset + (self._fed + x.size) / RATE
-                if now_call - expected > GAP_S:
+                late = now_call - (self._offset + (self._fed + x.size) / RATE)
+                if late > GAP_S:
                     # The stream stopped for a while (device change, a stall).
                     jobs += self._jobs(self.segmenter.flush())
-                    self._offset += now_call - expected
+                    self._offset += late
+                elif late < -AHEAD_S:
+                    # Audio is arriving faster than time passes: it was only held
+                    # up, not missing, so an earlier "gap" moved the clock too far.
+                    self._offset += late
             if self._wav is not None:
                 try:
                     self._wav.writeframes((np.clip(x, -1, 1) * 32767).astype("<i2").tobytes())
@@ -149,18 +163,29 @@ class CallRecorder:
     def __init__(self, transcript: Transcript, files: TranscriptFiles | None,
                  transcribe: Callable[[np.ndarray, str], str], *,
                  clean: Callable[[str], str] | None = None,
-                 drop_echo: bool = True, min_interval_s: float = 0.0,
+                 drop_echo: bool = True,
+                 min_interval_s: float | Callable[[], float] = 0.0, burst: int = 1,
                  audio_dir: Path | None = None,
                  on_line: Callable[[Line], None] | None = None,
-                 on_error: Callable[[Exception], None] | None = None) -> None:
+                 on_error: Callable[[Exception], None] | None = None,
+                 retry_after_s: float = RETRY_AFTER_S) -> None:
         self.transcript = transcript
         self.files = files
         self._transcribe = transcribe
         self._clean = clean or (lambda text: text)
         self.drop_echo = drop_echo
+        # Cloud speech-to-text allows so many requests a minute. Up to `burst`
+        # go out at once (a quick exchange is transcribed as it happens), then
+        # one per interval.
         self.min_interval_s = min_interval_s
+        self.burst = max(1, int(burst))
+        self._tokens = float(self.burst)
+        self._tokens_at = time.monotonic()
         self._on_line = on_line
         self._on_error = on_error
+        self.on_done: Callable[[], None] | None = None   # called if the transcript finishes late
+        self.retry_after_s = retry_after_s
+        self.write_error = ""
         self.t0 = time.monotonic()
         stem = Path(transcript.file_name()).stem
         self.channels: dict[str, Channel] = {}
@@ -171,14 +196,12 @@ class CallRecorder:
         self._cv = threading.Condition()
         self._closing = False
         self._busy = False
-        self._last_request = float("-inf")
         self.failures = 0
         self.lines_added = 0
         self.stt_seconds = 0.0          # speech sent to the model
         self.stt_time = 0.0             # time the model took
         self._worker = threading.Thread(target=self._run, name="call-transcribe", daemon=True)
         self._worker.start()
-        self._write()
 
     # -- audio in --------------------------------------------------------------
 
@@ -234,10 +257,22 @@ class CallRecorder:
                     self._busy = False
                     self._cv.notify_all()
 
+    def _pace(self) -> None:
+        """Wait, if needed, so requests stay inside the allowed rate."""
+        interval = self.min_interval_s() if callable(self.min_interval_s) else self.min_interval_s
+        now = time.monotonic()
+        if interval <= 0:
+            self._tokens, self._tokens_at = float(self.burst), now
+            return
+        self._tokens = min(float(self.burst), self._tokens + (now - self._tokens_at) / interval)
+        self._tokens_at = now
+        if self._tokens < 1.0:
+            time.sleep((1.0 - self._tokens) * interval)
+            self._tokens, self._tokens_at = 1.0, time.monotonic()
+        self._tokens -= 1.0
+
     def _process(self, batch: list[_Job]) -> None:
-        wait = self.min_interval_s - (time.monotonic() - self._last_request)
-        if wait > 0:
-            time.sleep(wait)
+        self._pace()
         pause = np.zeros(int(BATCH_PAUSE_S * RATE), dtype=np.float32)
         parts: list[np.ndarray] = []
         for i, job in enumerate(batch):
@@ -246,10 +281,16 @@ class CallRecorder:
             parts.append(job.utterance.samples)
         audio = normalize(np.concatenate(parts))
         speech_s = sum(j.utterance.speech_s for j in batch)
-        self._last_request = time.monotonic()
         t = time.perf_counter()
         try:
-            text = self._transcribe(audio, batch[0].speaker) or ""
+            try:
+                text = self._transcribe(audio, batch[0].speaker) or ""
+            except Exception as first:
+                # Often passing (a rate limit, a dropped connection): once more.
+                log.info("call speech-to-text failed, trying once more: %s", first)
+                time.sleep(self.retry_after_s)
+                self._pace()
+                text = self._transcribe(audio, batch[0].speaker) or ""
         except Exception as exc:
             self.failures += 1
             log.warning("call speech-to-text failed (%s, %.1f s): %s",
@@ -270,9 +311,15 @@ class CallRecorder:
         if not text or is_noise_text(text) or (speech_s < 0.6 and len(text.split()) > 8):
             return
         line = Line(batch[0].t, batch[0].speaker, text, batch[-1].end)
-        if self.drop_echo and line.speaker == "Me" and self.transcript.is_echo(line):
-            log.info("dropped a line that repeated the other side (echo), %d words", len(text.split()))
-            return
+        if self.drop_echo:
+            if line.speaker == "Me" and self.transcript.is_echo(line):
+                log.info("dropped a line that repeated the other side (echo), %d words", len(text.split()))
+                return
+            if line.speaker == "Them":      # the microphone's copy got here first
+                for echo in self.transcript.echoes_of(line):
+                    if self.transcript.remove(echo):
+                        self.lines_added -= 1
+                        log.info("removed a line that repeated the other side (echo)")
         self.transcript.add(line)
         self.lines_added += 1
         self._write()
@@ -283,19 +330,25 @@ class CallRecorder:
                 pass
 
     def _write(self) -> None:
-        if self.files is None:
+        """Nothing is written before the first line: a call in which nothing
+        was said leaves no file."""
+        if self.files is None or not self.transcript.lines():
             return
         try:
             self.files.write()
+            self.write_error = ""
         except Exception as exc:
+            self.write_error = str(exc)
             log.warning("could not write the call transcript: %s", exc)
 
     # -- the end -------------------------------------------------------------------
 
-    def finish(self, timeout: float = 12.0, ended: Optional[datetime] = None) -> bool:
+    def finish(self, timeout: float = 12.0, ended: Optional[datetime] = None,
+               final: bool = False) -> bool:
         """Transcribe what is left, mark the call ended, write the files.
         Returns False if the speech model was still behind after `timeout`
-        (it keeps going, and the files are rewritten when it catches up)."""
+        (it keeps going, and the files are rewritten when it catches up).
+        `final`: the app is quitting, so there is no "later"."""
         ended = ended or datetime.now()
         for ch in self.channels.values():
             self._enqueue(ch.flush())
@@ -307,7 +360,10 @@ class CallRecorder:
                 self._cv.wait(0.1)
             done = not self._queue and not self._busy
         self.transcript.ended = ended
-        if not done:
+        if not done and final:
+            self.transcript.notes.append(
+                "Scribe Plus was closed before the last part of this call was transcribed.")
+        elif not done:
             self.transcript.notes.append(
                 "The last part was still being transcribed when this was saved; "
                 "this file updates when it is done.")
@@ -316,10 +372,16 @@ class CallRecorder:
         return done
 
     def _finish_late(self) -> None:
-        self._worker.join(120.0)
-        self.transcript.notes = [n for n in self.transcript.notes
-                                 if not n.startswith("The last part was still")]
+        self._worker.join(1800.0)
+        if not self._worker.is_alive():
+            self.transcript.notes = [n for n in self.transcript.notes
+                                     if not n.startswith("The last part was still")]
         self._write()
+        if self.on_done:
+            try:
+                self.on_done()
+            except Exception:
+                log.exception("late call transcript hand-over failed")
 
     def summary(self) -> dict:
         me, them = self.channels["Me"], self.channels["Them"]

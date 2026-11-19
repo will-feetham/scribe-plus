@@ -77,7 +77,7 @@ settings. A git checkout runs where it is instead, for development.
 | Gesture | Mac (default) | Windows (default) | What happens |
 |---|---|---|---|
 | Hold, talk, release | **Right Option** | **Ctrl+Win** | Dictation: transcribed, cleaned up, pasted at the cursor |
-| Hold with the extra key, talk, release | **Right Option + Shift** | **Ctrl+Win+Alt** | Command Mode: rewrites the selected text ("make this friendlier", "turn this into bullets"). Press the extra key together with the hotkey; pressed later, mid-dictation, it is ignored. With nothing selected, your words are typed as a normal dictation |
+| Hold with the extra key, talk, release | **Right Option + Shift** | **Ctrl+Win+Alt** | Command Mode: rewrites the selected text ("make this friendlier", "turn this into bullets"). Press the extra key together with the hotkey; pressed later, mid-dictation, it is ignored. With nothing selected, your words are typed as a normal dictation. If the selection can't be read at all, nothing is typed, so your words can never replace text you had selected |
 | Double-tap | **Right Option** | **Ctrl+Win** | Hands-free: keeps listening; press the hotkey again to finish |
 | While recording | **Esc** | **Esc** | Cancel (the Esc is swallowed so it doesn't close your dialog) |
 | Any time | **Control+Command+V** | **Ctrl+Alt+V** | Paste the last dictation again |
@@ -117,16 +117,21 @@ Scribe Plus can write down both sides of a phone or video call while it happens.
 - **Both sides, labelled.** "Me" is your microphone. "Them" is what the calling app plays, and
   only that app, so music or alerts from elsewhere stay out. Everyone on the other end is "Them".
 - **Live.** Speech is transcribed a sentence at a time during the call, so the transcript is
-  finished a few seconds after you hang up.
+  finished a few seconds after you hang up. The next call is recorded straight away, even while
+  the last one is still being written up.
 - **Where it goes.** Each call gets its own file in `Scribe Plus/Calls` in your home folder, for
   example `2026-11-19 1142 Groove OmniDialer.md`. `latest.md` in the same folder is always the
   call in progress or the last one finished (its Status line says which), so it is the one file
   to point Claude or another tool at. When a call ends the transcript is also copied to the
-  clipboard; that can be switched off.
+  clipboard; that can be switched off. A "call" in which nothing was said leaves no file.
 - **On this Mac.** By default the speech-to-text runs on the Mac itself (Whisper through Apple's
   MLX, on Apple silicon), so call audio never leaves the computer. You can pick Groq or OpenAI
   for calls in the Calls menu; nothing is sent to them unless you do. Audio is not kept after it
-  is transcribed.
+  is transcribed. (Groq accepts 20 pieces of speech a minute. In a fast back-and-forth the cloud
+  transcript can fall behind and finish a little after the call; on the Mac there is no limit.)
+- **If something goes wrong, it says so.** If the part that records one side stops, it is started
+  again, and the transcript carries a note of when. If a side could not be recorded at all, the
+  notification and the transcript say which, and why.
 
 Set it up by adding `--calls` to the install line (`... | bash -s -- --calls`). That installs
 the on-device speech model, a 1.5 GB download the first time. It needs macOS 14.2 or newer, and
@@ -278,7 +283,8 @@ Mac package and publishes the release. The download page always points at the ne
 
 **Test builds** come from the `beta` branch. A version like `1.1.0b1` there is published as a
 GitHub pre-release with its own install line; the download page and the normal install line keep
-pointing at the last full release until the version lands on `main`.
+pointing at the last full release until the version lands on `main`. A test build's install line
+always installs that exact build; the install line on the download page goes back to the release.
 
 Scribe's own files are here too: `scribe_core.py` (shared engine), `scribe_windows.py` and
 `scribe.py` (Scribe's Windows and macOS apps), `install.bat`, `install.sh` and the `bin/`

@@ -221,6 +221,7 @@ DEFAULTS: dict = {
     "calls_max_minutes": 180,
     "calls_start_delay_s": 0.6,
     "calls_end_delay_s": 1.5,
+    "calls_end_delay_with_sound_s": 4.0,   # the app let go of the mic but is still playing sound
 }
 
 LANGUAGES: list[tuple[str, str]] = [

@@ -86,9 +86,6 @@ fi
 
 # --- 2. download the release -------------------------------------------------
 mkdir -p "$BASE"
-: > "$OPTIONS"
-if [[ "$CALLS" == 1 ]]; then echo "calls" >> "$OPTIONS"; fi
-if [[ "$LOCAL_WHISPER" == 1 ]]; then echo "local-whisper" >> "$OPTIONS"; fi
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 if [[ -n "${SCRIBE_PLUS_TARBALL:-}" ]]; then
@@ -139,29 +136,47 @@ reqs=(-r "$BASE/app/requirements-plus-mac.txt")
 VIRTUAL_ENV="$BASE/venv" "$UV" pip install --quiet "${reqs[@]}"
 
 # --- 3b. call transcripts: speech-to-text that runs on this Mac ------------------
+# An extra: if any of it fails, dictation is still installed and working, and
+# the next update tries again.
+CALLS_READY=0
 if [[ "$CALLS" == 1 ]]; then
     IFS=. read -r os_major os_minor _ <<<"$(sw_vers -productVersion)"
     if (( os_major < 14 || (os_major == 14 && ${os_minor:-0} < 2) )); then
         echo "Note: call transcripts need macOS 14.2 or newer; this Mac has $(sw_vers -productVersion)."
-        echo "      Dictation works as before."
-    fi
-    if [[ "$(uname -m)" == "arm64" ]]; then
+        echo "      Skipping that part. Dictation works as before."
+    elif [[ "$(uname -m)" == "arm64" ]]; then
         say "Installing on-device speech-to-text for call transcripts"
-        VIRTUAL_ENV="$BASE/venv" "$UV" pip install --quiet -r "$BASE/app/requirements-calls-mac.txt"
-        # Without its listed dependencies: it names PyTorch, which only its
-        # model-conversion tool uses (a 200 MB download the app never needs).
-        VIRTUAL_ENV="$BASE/venv" "$UV" pip install --quiet --no-deps mlx-whisper
-        model="${SCRIBE_PLUS_CALLS_MODEL:-mlx-community/whisper-large-v3-turbo}"
-        say "Getting the speech model (about 1.5 GB the first time; later updates reuse it)"
-        "$BASE/venv/bin/python" -c 'import sys
+        # mlx-whisper goes in without its listed dependencies: it names PyTorch,
+        # which only its model-conversion tool uses (a 200 MB download the app
+        # never needs).
+        if VIRTUAL_ENV="$BASE/venv" "$UV" pip install --quiet -r "$BASE/app/requirements-calls-mac.txt" \
+            && VIRTUAL_ENV="$BASE/venv" "$UV" pip install --quiet --no-deps mlx-whisper; then
+            CALLS_READY=1
+            model="${SCRIBE_PLUS_CALLS_MODEL:-mlx-community/whisper-large-v3-turbo}"
+            say "Getting the speech model (about 1.5 GB the first time; later updates reuse it)"
+            "$BASE/venv/bin/python" -c 'import sys
 from huggingface_hub import snapshot_download
 snapshot_download(repo_id=sys.argv[1])' "$model" \
-            || echo "The model didn't download just now. Scribe Plus fetches it on your first call."
+                || echo "The model didn't download just now. Scribe Plus fetches it on your first call."
+        else
+            echo "Note: the speech-to-text for call transcripts could not be installed just now."
+            echo "      Dictation is installed and works. Run this installer again to retry."
+        fi
     else
         say "Intel Mac: installing the processor-based speech-to-text for call transcripts"
-        VIRTUAL_ENV="$BASE/venv" "$UV" pip install --quiet -r "$BASE/app/requirements-local.txt"
+        if VIRTUAL_ENV="$BASE/venv" "$UV" pip install --quiet -r "$BASE/app/requirements-local.txt"; then
+            CALLS_READY=1
+        else
+            echo "Note: the speech-to-text for call transcripts could not be installed just now."
+            echo "      Dictation is installed and works. Run this installer again to retry."
+        fi
     fi
 fi
+
+# What you chose, for the next update. Written only now, with the packages in.
+: > "$OPTIONS"
+if [[ "$CALLS" == 1 ]]; then echo "calls" >> "$OPTIONS"; fi
+if [[ "$LOCAL_WHISPER" == 1 ]]; then echo "local-whisper" >> "$OPTIONS"; fi
 
 # --- 4. the app bundle ---------------------------------------------------------
 mkdir -p "$APPS"
@@ -253,12 +268,20 @@ Scribe Plus restarts itself once they're on.
 Then click into any text box, hold Right Option, talk, and let go.
 To update later, run the same install command again.
 EOF
-if [[ "$CALLS" == 1 ]]; then
+if [[ "$CALLS_READY" == 1 ]]; then
     cat <<EOF
 
 Call transcripts are set up. On your first call macOS asks for one more
 permission, System Audio Recording, so Scribe Plus can hear the other side.
 Transcripts go to "Scribe Plus/Calls" in your home folder; the Calls menu
 under the menu bar icon has the rest.
+EOF
+fi
+if [[ -n "$RELEASE_TAG" ]]; then
+    cat <<EOF
+
+This is test build $RELEASE_TAG. Its install line always installs exactly this
+build. To go back to the released version, run the install line from
+https://scribeplus.feetham.us
 EOF
 fi

@@ -26,7 +26,9 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - name: Tests
         run: |
-          xvfb-run -a python -m pytest -q 2>&1 | tee pytest.log; code=${PIPESTATUS[0]}
+          code=0
+          xvfb-run -a python -m pytest -q > pytest.log 2>&1 || code=$?
+          cat pytest.log
           [ "$code" -eq 0 ] || .github/scripts/annotate.sh "Linux tests failed" pytest.log
           exit "$code"
 
@@ -41,7 +43,9 @@ jobs:
       - name: Tests
         shell: bash
         run: |
-          python -m pytest -q 2>&1 | tee pytest.log; code=${PIPESTATUS[0]}
+          code=0
+          python -m pytest -q > pytest.log 2>&1 || code=$?
+          cat pytest.log
           [ "$code" -eq 0 ] || .github/scripts/annotate.sh "Windows tests failed" pytest.log
           exit "$code"
 
@@ -55,7 +59,9 @@ jobs:
       - name: Unit tests
         run: |
           pip install -r requirements-plus-mac.txt pytest
-          python -m pytest -q 2>&1 | tee pytest.log; code=${PIPESTATUS[0]}
+          code=0
+          python -m pytest -q > pytest.log 2>&1 || code=$?
+          cat pytest.log
           [ "$code" -eq 0 ] || .github/scripts/annotate.sh "Mac tests failed" pytest.log
           exit "$code"
       - name: Build Scribe Plus.app and the release tarball

@@ -138,7 +138,8 @@ def whisper_prompt(dictionary: Dictionary, max_chars: int = 600) -> str:
     return f"{', '.join(words)}." if words else ""
 
 
-_SENTENCE = re.compile(r"[^.!?]+[.!?]*")
+# A sentence ends at . ! or ? followed by a space (so "8.8.8.8" stays whole).
+_SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+")
 
 
 def strip_prompt_echo(text: str, prompt: str = "") -> str:
@@ -146,13 +147,18 @@ def strip_prompt_echo(text: str, prompt: str = "") -> str:
 
     Two shapes, both seen in real dictations: the whole spelling hint handed
     back as if it had been said, and a short fragment repeated over and over
-    at the end ("Vocabulary. Vocabulary. Vocabulary. Vocabulary.")."""
+    at the end ("Vocabulary. Vocabulary. Vocabulary. Vocabulary.").
+
+    It errs on the side of keeping words. A fragment said three times ("No.
+    No. No.") is speech; it is only removed at four or more repeats, or at
+    three when it comes straight from the spelling hint."""
     t = (text or "").strip()
     if not t:
         return ""
-    if prompt and _plain(t) == _plain(prompt):
+    hint = _plain(prompt)
+    if prompt.count(",") >= 1 and _plain(t) == hint:      # a one-word hint may simply be what was said
         return ""
-    parts = [m.group(0).strip() for m in _SENTENCE.finditer(t) if m.group(0).strip()]
+    parts = [p for p in _SENTENCE_BREAK.split(t) if p.strip()]
     if len(parts) >= 3:
         last = _plain(parts[-1])
         run = 0
@@ -160,9 +166,10 @@ def strip_prompt_echo(text: str, prompt: str = "") -> str:
             if _plain(part) != last:
                 break
             run += 1
-        if run >= 3 and last and len(last.split()) <= 3:
-            parts = parts[:len(parts) - run]
-            t = " ".join(parts).strip()
+        words = last.split()
+        from_hint = bool(words) and set(words) <= set(hint.split())
+        if words and len(words) <= 3 and (run >= 4 or (run >= 3 and from_hint)):
+            t = " ".join(parts[:len(parts) - run]).strip()
     return t
 
 

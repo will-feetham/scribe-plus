@@ -226,6 +226,22 @@ def test_command_mode_with_nothing_selected_types_what_was_said(env):
     assert row["mode"] == "dictate" and row["guard"] == "no selection"
 
 
+def test_command_mode_changes_nothing_when_the_selection_cannot_be_read(env):
+    # Not knowing whether text is selected, typing the spoken instruction could
+    # replace the very text it was about.
+    api = Api(stt="make this more formal", chat="unused")
+    plat = FakePlatform(selection="hey whats up")
+
+    def broken():
+        raise OSError("clipboard busy")
+
+    plat.capture_selection = broken
+    eng = make_engine(env, plat, api, FakeRecorder(speech_wav()))
+    dictate(eng, plat, mode="command")
+    assert plat.pasted == [] and plat.copied == []
+    assert read_metrics(env[1])[0]["guard"] == "selection not read"
+
+
 def test_command_mode_can_still_write_from_nothing_if_you_turn_it_on(env):
     env[0].set("command_writes_without_selection", True)
     api = Api(stt="draft a thank you note", chat="Thank you so much for your help.")

@@ -5,6 +5,10 @@ The Mac helper reports which apps have the microphone open. A call is "a
 watched app has held the microphone for a moment"; it is over once the app
 has let go for a moment. The short waits ride out blips (an app testing the
 mic, a device switching) without adding much to how fast a call closes.
+
+Some apps close the microphone while you are muted. If the app is still
+playing sound when it lets go of the microphone, the call is given longer
+before it counts as over.
 """
 from __future__ import annotations
 
@@ -65,9 +69,10 @@ class Detected:
 
 
 class CallDetector:
-    def __init__(self, apps: list[dict], *, start_delay: float = 0.6, end_delay: float = 1.5) -> None:
+    def __init__(self, apps: list[dict], *, start_delay: float = 0.6, end_delay: float = 1.5,
+                 sound_hold: float = 4.0) -> None:
         self.apps = apps
-        self.start_delay, self.end_delay = start_delay, end_delay
+        self.start_delay, self.end_delay, self.sound_hold = start_delay, end_delay, sound_hold
         self._procs: list[dict] = []
         self._since: dict[str, float] = {}     # app name -> when its mic use began
         self._active: Detected | None = None
@@ -82,6 +87,9 @@ class CallDetector:
 
     def all_procs(self, app: dict) -> list[dict]:
         return [p for p in self._procs if matches(app, p)]
+
+    def playing(self, app: dict) -> bool:
+        return any(p.get("output") and matches(app, p) for p in self._procs)
 
     def update(self, procs: list[dict], now: float) -> None:
         """The latest report from the helper (only apps with audio open)."""
@@ -108,7 +116,8 @@ class CallDetector:
             return None
         if self._quiet_since is None:
             self._quiet_since = now
-        if now - self._quiet_since >= self.end_delay:
+        wait = max(self.end_delay, self.sound_hold) if self.playing(self._active.app) else self.end_delay
+        if now - self._quiet_since >= wait:
             ended, self._active, self._quiet_since = self._active, None, None
             self._since.pop(ended.name, None)
             return "stop", ended

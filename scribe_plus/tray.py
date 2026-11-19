@@ -290,8 +290,7 @@ class TrayApp:
     # -- calls -------------------------------------------------------------------
 
     def _call_apps(self) -> list[dict]:
-        apps = self.settings.get("calls_apps")
-        return apps if isinstance(apps, list) else []
+        return self.calls.apps() if self.calls is not None else []
 
     def _calls_menu(self) -> list:
         if self.calls is None:

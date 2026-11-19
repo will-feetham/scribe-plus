@@ -11,6 +11,7 @@ app with it.
 from __future__ import annotations
 
 import argparse
+import os
 import queue
 import sys
 import threading
@@ -46,8 +47,10 @@ def main(argv: list[str] | None = None) -> int:
             pass
 
     def watch_stdin() -> None:
+        # os.read, not sys.stdin: a thread parked inside sys.stdin's buffer
+        # makes Python abort when the program ends for another reason.
         try:
-            while sys.stdin.buffer.read(64):
+            while os.read(0, 64):
                 pass
         except Exception:
             pass

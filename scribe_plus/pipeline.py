@@ -375,6 +375,16 @@ class DictationEngine:
             if sel_thread:
                 sel_thread.join(2.0)
             restore = selection.get("saved")
+            if "text" not in selection:
+                # The selection could not be read (the app was slow to answer,
+                # or reading it failed), so it is not known whether anything is
+                # selected. Typing now could replace the user's selected text
+                # with their spoken instruction: change nothing instead.
+                row["guard"] = "selection not read"
+                self._finish_row(row, ms_since_release())
+                self.platform.restore_clipboard(restore)
+                self.platform.ui("error", message="Couldn't read the selection. Nothing was changed.")
+                return None
             if not selection.get("text", "").strip() and not st.get("command_writes_without_selection"):
                 # Nothing was selected, so there is nothing to rewrite: type the
                 # words as spoken. (Otherwise a brushed Command Mode key turns

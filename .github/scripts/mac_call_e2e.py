@@ -109,7 +109,7 @@ else:
 call.wait(60)
 hung_up = time.time()
 deadline = time.time() + 60
-while time.time() < deadline and (manager.recording or manager._busy):
+while time.time() < deadline and not manager.idle:
     time.sleep(0.05)
 result(f"closed: {time.time() - hung_up:.1f} s after the caller hung up")
 manager.shutdown()
