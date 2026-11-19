@@ -372,14 +372,16 @@ static int runCapture(NSArray<NSString *> *bundles, NSArray<NSString *> *paths,
                     @"buffers": @(layout >> 16), @"channels_read": @(layout & 0xffff) });
 
     uint64_t readPos = atomic_load(&g_written);   /* skip what arrived while starting */
+    uint64_t lastWritten = readPos;
     uint64_t sent = 0;
     float peak = 0;
     double sumsq = 0;
     uint64_t levelFrames = 0;
     NSDate *begun = [NSDate date];
-    NSDate *lastLevel = begun, *lastScan = begun;
+    NSDate *lastLevel = begun, *lastScan = begun, *lastFormat = begun, *lastAudio = begun;
     static float chunk[PACKET_FRAMES];
     BOOL broken = NO;
+    int restarts = 0;
 
     while (!atomic_load(&g_stop) && !broken) {
         @autoreleasepool {
@@ -404,9 +406,32 @@ static int runCapture(NSArray<NSString *> *bundles, NSArray<NSString *> *paths,
             if (fflush(stdout) != 0) broken = YES;
 
             NSDate *now = [NSDate date];
-            if ([now timeIntervalSinceDate:lastLevel] >= 2.0) {
+            /* The rate changes mid-call when the sound moves to another device,
+               or when a headset switches to its call mode. */
+            if ([now timeIntervalSinceDate:lastFormat] >= 0.25) {
+                lastFormat = now;
                 AudioStreamBasicDescription f = tapFormat(rig.tap);
-                if (f.mSampleRate > 0) atomic_store(&g_rate, (uint32_t)f.mSampleRate);
+                uint32_t rate = (uint32_t)f.mSampleRate;
+                if (rate > 0 && rate != atomic_load(&g_rate)) {
+                    atomic_store(&g_rate, rate);
+                    emit(stderr, @{ @"event": @"rate", @"rate": @(rate) });
+                }
+            }
+            /* Audio arrives all the time, silence included. If it stops, the
+               device under the tap went away: read it again from scratch. */
+            if (w != lastWritten) {
+                lastWritten = w;
+                lastAudio = now;
+            } else if ([now timeIntervalSinceDate:lastAudio] >= 3.0 && restarts < 5) {
+                restarts++;
+                emit(stderr, @{ @"event": @"restart", @"attempt": @(restarts) });
+                teardown(&rig);
+                BOOL again = startReading(&rig, tapUID, style) || startReading(&rig, tapUID, 1 - style);
+                if (!again) { fail(@"restart", 0, @"the audio did not come back"); break; }
+                readPos = lastWritten = atomic_load(&g_written);
+                lastAudio = [NSDate date];
+            }
+            if ([now timeIntervalSinceDate:lastLevel] >= 2.0) {
                 emit(stderr, @{ @"event": @"level", @"peak": @(peak),
                                 @"rms": @(levelFrames ? sqrt(sumsq / (double)levelFrames) : 0.0),
                                 @"frames": @(sent), @"rate": @(atomic_load(&g_rate)),

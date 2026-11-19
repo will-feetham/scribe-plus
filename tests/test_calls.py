@@ -487,7 +487,7 @@ def test_a_detected_call_is_recorded_saved_and_copied(tmp_path, monkeypatch):
     assert text.index("Me: Hi") < text.index("Them: Hey")
     assert mgr.last_file().name.endswith("Groove OmniDialer.md") and mgr.last_file().read_text(encoding="utf-8") == text
     assert [t for t, _m in notes] == ["Recording a call", "Call transcript ready"]
-    assert "2 lines saved and copied" in notes[1][1]
+    assert notes[1][1].startswith("Groove OmniDialer: 2 lines saved and copied, ")
     assert len(requests) == 2
 
 

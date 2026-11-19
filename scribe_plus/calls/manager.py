@@ -277,11 +277,8 @@ class CallManager:
                              always=True)
             return
         started = datetime.now()
-        titles: list[str] = []
-        if detected and self.settings.get("calls_window_titles"):
-            titles = self._titles(detected)
         transcript = Transcript(name, started, app=detected.name if detected else "",
-                                windows=titles, engine=engine)
+                                engine=engine)
         files = TranscriptFiles(self.calls_dir(), transcript)
         recorder = CallRecorder(
             transcript, files, self._transcriber(engine, model), clean=self._cleaner(),
@@ -313,6 +310,11 @@ class CallManager:
         with self._lock:
             self._call = call
         self._platform_hook("call_started")
+        if detected and self.settings.get("calls_window_titles"):
+            # After the recording is running: asking an app for its windows can take a moment.
+            for title in self._titles(detected):
+                if title not in transcript.windows:
+                    transcript.windows.append(title)
         log.info("call started: %s (speech-to-text %s, %s; capture %s)", name, engine, model,
                  "all sound" if system else "the app's sound")
         self._notify("Recording a call", f"{name}: both sides, transcribed {ENGINE_LABELS.get(engine, engine)}.")
@@ -400,8 +402,10 @@ class CallManager:
                 log.warning("could not copy the call transcript: %s", exc)
         if lines:
             copied = " and copied" if self.settings.get("calls_copy_on_end") else ""
+            count = "1 line" if lines == 1 else f"{lines} lines"
+            when = "as the call ended" if ready_s < 1.5 else f"{ready_s:.0f} s after the call ended"
             self._notify("Call transcript ready",
-                         f"{call.name}: {lines} lines saved{copied}, {ready_s:.0f} s after the call ended."
+                         f"{call.name}: {count} saved{copied}, {when}."
                          + (" " + hints[0] if hints else ""), always=bool(hints))
         elif tr.ended and (tr.ended - tr.started).total_seconds() >= QUIET_UNDER_S:
             # (An app that opens the microphone for a moment is not worth a notice.)
