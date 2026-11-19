@@ -219,7 +219,7 @@ DEFAULTS: dict = {
     "calls_drop_echo": True,
     "calls_keep_audio": False,       # also save each side as a WAV (for troubleshooting)
     "calls_max_minutes": 180,
-    "calls_start_delay_s": 1.0,
+    "calls_start_delay_s": 0.6,
     "calls_end_delay_s": 1.5,
 }
 

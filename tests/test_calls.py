@@ -510,6 +510,7 @@ def test_stopping_from_the_menu_does_not_restart_while_the_app_keeps_the_mic(tmp
 
 
 def test_manual_recording_uses_all_sound(tmp_path, monkeypatch):
+    monkeypatch.setattr("scribe_plus.calls.manager.QUIET_UNDER_S", 0.0)
     mgr, st, platform, notes, copied, mics, _req = make_manager(tmp_path, monkeypatch)
     mgr.start_manual()
     assert wait_for(lambda: mgr.recording)
@@ -542,7 +543,19 @@ def test_calls_never_go_to_the_cloud_unless_chosen(tmp_path, monkeypatch):
     assert mgr.resolve_engine()[:2] == ("mlx", "mlx-community/whisper-large-v3-turbo")
 
 
+def test_a_momentary_mic_use_ends_quietly(tmp_path, monkeypatch):
+    mgr, st, platform, notes, copied, mics, _req = make_manager(tmp_path, monkeypatch)
+    mgr._on_procs([DIALER])
+    mgr._tick(time.monotonic())
+    assert wait_for(lambda: mgr.recording)
+    mgr._on_procs([])
+    mgr._tick(time.monotonic())
+    assert wait_for(lambda: not mgr.recording and not mgr._busy)
+    assert [t for t, _m in notes] == ["Recording a call"] and copied == []
+
+
 def test_detection_can_be_turned_off_and_silence_is_explained(tmp_path, monkeypatch):
+    monkeypatch.setattr("scribe_plus.calls.manager.QUIET_UNDER_S", 0.0)
     silent_them = np.zeros(48000 * 3, dtype=np.float32)
     mgr, st, platform, notes, copied, mics, _req = make_manager(
         tmp_path, monkeypatch, them=silent_them, me=quiet(3.0))

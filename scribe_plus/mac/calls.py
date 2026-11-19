@@ -33,6 +33,7 @@ class MacCallPlatform:
         self._available: Optional[tuple[bool, str]] = None
         self._watch: subprocess.Popen | None = None
         self._stop = threading.Event()
+        self._activity = None
 
     # -- can this Mac do it? ---------------------------------------------------
 
@@ -64,7 +65,7 @@ class MacCallPlatform:
     def _watch_loop(self, on_procs: Callable[[list[dict]], None]) -> None:
         while not self._stop.is_set():
             try:
-                proc = subprocess.Popen([str(self.helper), "watch", "--interval", "0.5"],
+                proc = subprocess.Popen([str(self.helper), "watch", "--interval", "0.25"],
                                         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=subprocess.DEVNULL)
             except Exception as exc:
@@ -120,6 +121,22 @@ class MacCallPlatform:
             for root in detected.roots:
                 argv += ["--path", root]
         return PacketProcess("call-tap", argv, on_audio, on_event=on_event)
+
+    # -- staying awake ------------------------------------------------------------------
+
+    def call_started(self) -> None:
+        """macOS slows down apps with no window on screen ("App Nap"). A call
+        in progress is exactly when this one must not be slowed down."""
+        from Foundation import NSActivityUserInitiatedAllowingIdleSystemSleep, NSProcessInfo
+        if self._activity is None:
+            self._activity = NSProcessInfo.processInfo().beginActivityWithOptions_reason_(
+                NSActivityUserInitiatedAllowingIdleSystemSleep, "Recording a call")
+
+    def call_ended(self) -> None:
+        from Foundation import NSProcessInfo
+        activity, self._activity = self._activity, None
+        if activity is not None:
+            NSProcessInfo.processInfo().endActivity_(activity)
 
     # -- context ------------------------------------------------------------------------
 

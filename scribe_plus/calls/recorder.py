@@ -171,7 +171,7 @@ class CallRecorder:
         self._cv = threading.Condition()
         self._closing = False
         self._busy = False
-        self._last_request = 0.0
+        self._last_request = float("-inf")
         self.failures = 0
         self.lines_added = 0
         self.stt_seconds = 0.0          # speech sent to the model
@@ -271,7 +271,7 @@ class CallRecorder:
             return
         line = Line(batch[0].t, batch[0].speaker, text, batch[-1].end)
         if self.drop_echo and line.speaker == "Me" and self.transcript.is_echo(line):
-            log.info("dropped an echo of the other side: %r", text[:60])
+            log.info("dropped a line that repeated the other side (echo), %d words", len(text.split()))
             return
         self.transcript.add(line)
         self.lines_added += 1

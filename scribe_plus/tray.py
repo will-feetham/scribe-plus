@@ -331,8 +331,8 @@ class TrayApp:
             I(status, None, enabled=False),
             toggle,
             M.SEPARATOR,
-            I("Copy last call", self._copy_last_call),
-            I("Open last call", self._open_last_call),
+            I("Copy this call so far" if st["recording"] else "Copy last call", self._copy_last_call),
+            I("Open this call" if st["recording"] else "Open last call", self._open_last_call),
             I("Open Calls folder", self._open_calls_folder),
             M.SEPARATOR,
             I("Notice calls automatically", self._toggle("calls_enabled"),
@@ -383,7 +383,7 @@ class TrayApp:
 
     def _copy_last_call(self, *_):
         if self.calls.copy_last():
-            self.notify("Copied last call", str(self.calls.last_file().name))
+            self.notify("Call transcript copied", str(self.calls.last_file().name))
         else:
             self.notify("No call yet", "The transcript of a call appears here once one is recorded.")
 

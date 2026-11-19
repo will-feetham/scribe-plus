@@ -32,6 +32,7 @@ log = logging.getLogger(__name__)
 
 MANUAL_NAME = "Manual recording"
 GROQ_MIN_INTERVAL_S = 3.2      # Groq allows 20 speech requests a minute
+QUIET_UNDER_S = 5.0            # an empty "call" shorter than this ends without a notice
 ENGINE_LABELS = {
     "mlx": "on this Mac", "local": "on this computer",
     "groq": "by Groq (cloud)", "openai": "by OpenAI (cloud)",
@@ -74,7 +75,7 @@ class CallManager:
         self.on_change: Callable[[], None] | None = None
         self.last_path: Path | None = None
         self.last_text = ""
-        self.detector = CallDetector(self._apps(), start_delay=self._num("calls_start_delay_s", 1.0),
+        self.detector = CallDetector(self._apps(), start_delay=self._num("calls_start_delay_s", 0.6),
                                      end_delay=self._num("calls_end_delay_s", 1.5))
         self._call: _Call | None = None
         self._busy = False                 # a call is being started or wrapped up
@@ -160,6 +161,8 @@ class CallManager:
         # One log line whenever a watched app starts or stops using the mic or
         # playing sound: this is what shows how an app behaves around a call.
         for app in self._apps():
+            if not app.get("enabled", True):
+                continue
             name = str(app.get("name"))
             mine = [p for p in procs if matches(app, p)]
             state = ("mic " if any(p.get("input") for p in mine) else "") + \
@@ -309,9 +312,19 @@ class CallManager:
             engines.MLX_WHISPER.preload(model)
         with self._lock:
             self._call = call
+        self._platform_hook("call_started")
         log.info("call started: %s (speech-to-text %s, %s; capture %s)", name, engine, model,
                  "all sound" if system else "the app's sound")
         self._notify("Recording a call", f"{name}: both sides, transcribed {ENGINE_LABELS.get(engine, engine)}.")
+
+    def _platform_hook(self, name: str) -> None:
+        """Optional platform extras (the Mac keeps itself awake during a call)."""
+        hook = getattr(self.platform, name, None)
+        if hook:
+            try:
+                hook()
+            except Exception as exc:
+                log.debug("%s failed: %s", name, exc)
 
     def _titles(self, detected: Detected) -> list[str]:
         try:
@@ -355,6 +368,7 @@ class CallManager:
                 if title not in tr.windows:
                     tr.windows.append(title)
         caught_up = rec.finish(timeout=12.0)
+        self._platform_hook("call_ended")
         me, them = rec.channels["Me"], rec.channels["Them"]
         hints: list[str] = []
         if them.seconds < 1.0:
@@ -389,13 +403,18 @@ class CallManager:
             self._notify("Call transcript ready",
                          f"{call.name}: {lines} lines saved{copied}, {ready_s:.0f} s after the call ended."
                          + (" " + hints[0] if hints else ""), always=bool(hints))
-        else:
+        elif tr.ended and (tr.ended - tr.started).total_seconds() >= QUIET_UNDER_S:
+            # (An app that opens the microphone for a moment is not worth a notice.)
             self._notify("Call ended, nothing transcribed",
                          hints[0] if hints else "No speech was heard on either side.", always=True)
 
     # -- last call -------------------------------------------------------------------------
 
     def last_file(self) -> Path | None:
+        """The call in progress once it has a transcript, else the last one finished."""
+        call = self._call
+        if call is not None and call.files.path.exists():
+            return call.files.path
         if self.last_path and self.last_path.exists():
             return self.last_path
         latest = self.calls_dir() / "latest.md"

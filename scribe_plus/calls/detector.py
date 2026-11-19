@@ -65,7 +65,7 @@ class Detected:
 
 
 class CallDetector:
-    def __init__(self, apps: list[dict], *, start_delay: float = 1.0, end_delay: float = 1.5) -> None:
+    def __init__(self, apps: list[dict], *, start_delay: float = 0.6, end_delay: float = 1.5) -> None:
         self.apps = apps
         self.start_delay, self.end_delay = start_delay, end_delay
         self._procs: list[dict] = []
